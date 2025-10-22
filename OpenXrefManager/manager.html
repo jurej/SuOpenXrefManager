@@ -57,6 +57,7 @@
     .col-status { flex: 0 0 140px; }
     .col-path { flex: 1 1 30%; min-width: 150px; }
     .col-pathtype { flex: 0 0 120px; text-align: center; }
+    .col-timestamp { flex: 0 0 140px; }
     .col-actions { flex: 0 0 160px; }
   </style>
 
@@ -70,6 +71,7 @@
       <div class="col-status px-2">Status</div>
       <div class="col-path px-2">File Path</div>
       <div class="col-pathtype px-2">Path Type</div>
+      <div class="col-timestamp px-2">Last Modified</div> 
       <div class="col-actions px-2">Actions</div>
     </div>
     <!-- List Body (will be populated by JS) -->
@@ -101,6 +103,19 @@
     const publishAllButton = document.getElementById('publish-all-button');
     const purgeButton = document.getElementById('purge-button');
     const refreshButton = document.getElementById('refresh-button'); 
+
+    function formatTimestamp(unix_timestamp) {
+      if (!unix_timestamp) {
+        return "---";
+      }
+      const date = new Date(unix_timestamp * 1000); // JS uses milliseconds
+      const Y = date.getFullYear();
+      const M = ('0' + (date.getMonth() + 1)).slice(-2);
+      const D = ('0' + date.getDate()).slice(-2);
+      const h = ('0' + date.getHours()).slice(-2);
+      const m = ('0' + date.getMinutes()).slice(-2);
+      return `${Y}-${M}-${D} ${h}:${m}`;
+    }
 
     function requestDataRefresh() {
       if (sketchup) { sketchup.refresh_data(); }
@@ -177,7 +192,12 @@
         }
         pathTypeCol.innerHTML = buttonHTML;
         row.appendChild(pathTypeCol);
-        
+        // Timestamp Column
+        const timestampCol = document.createElement('div');
+        timestampCol.className = 'col-timestamp px-2 small text-muted';
+        timestampCol.textContent = formatTimestamp(xref.timestamp);
+        row.appendChild(timestampCol);
+
         // Actions Column
         const actionsCol = document.createElement('div');
         actionsCol.className = 'col-actions px-2 action-buttons';

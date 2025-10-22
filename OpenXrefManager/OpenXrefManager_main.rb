@@ -23,6 +23,7 @@ module OpenXrefManager
   XREF_PATH_KEY = "path"
   XREF_PATH_TYPE_KEY = "path_type" # "absolute" or "relative"
   XREF_UNLOADED_KEY = "is_unloaded" # true or false
+  XREF_TIMESTAMP_KEY = "timestamp"
   TIMER_INTERVAL = 5 # Seconds between background checks
   
   # Messagebox Result Constants
@@ -148,12 +149,20 @@ module OpenXrefManager
         can_be_relative: can_be_relative,
         lock_model: lock_model_name,
         lock_model_path: lock_model_path,
-        is_unloaded: is_unloaded
+        is_unloaded: is_unloaded,
+        timestamp: definition.get_attribute(XREF_DICT_NAME, XREF_TIMESTAMP_KEY)
       }
     end
     return data.to_json
   end
 
+  # Helper to update the modification timestamp for an XRef.
+  def self._update_xref_timestamp(definition)
+    return unless definition && definition.valid?
+    # Store as a Unix integer (seconds since epoch)
+    definition.set_attribute(XREF_DICT_NAME, XREF_TIMESTAMP_KEY, Time.now.to_i)
+  end
+  
   # --- Live Update Timer ---
   
   # Starts the background timer to check for changes in XRef lock files.
@@ -378,6 +387,7 @@ module OpenXrefManager
       definition.set_attribute(XREF_DICT_NAME, XREF_PATH_KEY, absolute_path)
       definition.set_attribute(XREF_DICT_NAME, XREF_PATH_TYPE_KEY, "absolute")
     end
+    self._update_xref_timestamp(definition)
     self.refresh_dialog_data
   end
 
@@ -474,6 +484,7 @@ module OpenXrefManager
     return false unless path
     begin
       definition.save_as(path)
+      self._update_xref_timestamp(definition)
       lock_path = path + ".lock"
       File.delete(lock_path) if File.exist?(lock_path)
       @last_xref_statuses[definition.guid] = "unlocked"
@@ -788,11 +799,13 @@ module OpenXrefManager
           puts "OpenXrefManager: Could not purge '#{original_name}'. " +
                "Reloaded XRef remains as '#{reloaded_definition.name}'."
         end
+        self._update_xref_timestamp(reloaded_definition)
                 
       elsif reloaded_definition && reloaded_definition == original_definition
-         # This path happens if the definition was *already* purged.
-         # In this case, just set the unloaded flag to false.
-         reloaded_definition.set_attribute(XREF_DICT_NAME, XREF_UNLOADED_KEY, false)
+        # This path happens if the definition was *already* purged.
+        # In this case, just set the unloaded flag to false.
+        reloaded_definition.set_attribute(XREF_DICT_NAME, XREF_UNLOADED_KEY, false)
+        self._update_xref_timestamp(reloaded_definition)
       end
       
       success = !reloaded_definition.nil?
