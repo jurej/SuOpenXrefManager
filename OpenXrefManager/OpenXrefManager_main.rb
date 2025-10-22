@@ -700,15 +700,6 @@ module OpenXrefManager
       UI.messagebox("Cannot reload '#{component_name}'. File not found at:\n#{path}") unless suppress_errors
       return false
     end
-    
-    lock_content = self.get_xref_lock_status(definition)
-    if lock_content != "unlocked"
-      lock_owner_name, lock_owner_guid = lock_content.split('|')
-      if !(lock_owner_name == @user_name && lock_owner_guid == model.guid)
-        UI.messagebox("Cannot reload '#{component_name}'. It is locked by #{lock_owner_name}.") unless suppress_errors
-        return false
-      end
-    end
 
     model.start_operation("Reload XRef: #{component_name}", true)
     

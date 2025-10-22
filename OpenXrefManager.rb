@@ -18,11 +18,11 @@ require 'sketchup.rb'
 require 'extensions.rb'
 
 # Create a new SketchupExtension object.
-open_xref_extension = SketchupExtension.new("Open XRef Manager", "OpenXrefManager/OpenXrefManager_main.rb")
+open_xref_extension = SketchupExtension.new("Open XRef Manager", "OpenXrefManager/OpenXrefManager_main")
 
 # Add some details that will show up in the Extension Manager.
 open_xref_extension.description = "A professional XRef management system for collaborative workflows."
-open_xref_extension.version = "1.2.1"
+open_xref_extension.version = "1.2.2"
 open_xref_extension.creator = "Jure Judez"
 open_xref_extension.copyright = "2025, licensed under GNU GPL v3"
 

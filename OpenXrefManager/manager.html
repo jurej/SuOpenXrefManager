@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Open XRef Manager</title>
+  <title>Open XRef Manager v1.3b</title>
     <link href="modus/modus.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
 
@@ -136,6 +136,7 @@
         switch(xref.status_key) {
           case 'ok': bgClass = 'bg-success'; break;
           case 'not_found': bgClass = 'bg-danger'; break;
+          actionsCol.innerHTML += `<button class="btn btn-warning-outline btn-sm" title="Relink File..." onclick="sketchup.relink_clicked('${xref.name}')"><i class="material-icons">link</i></button>`;
           case 'mine': bgClass = 'bg-primary'; break;
           case 'locked': bgClass = 'bg-secondary'; break;
           case 'mine_elsewhere': bgClass = 'bg-warning'; textClass = 'text-dark'; break;
@@ -198,10 +199,8 @@
             actionsCol.innerHTML += `<span class="text-muted small">Locked</span>`;
             actionsCol.innerHTML += `<button class="btn btn-danger-outline btn-sm" title="Force Unlock" onclick="handleForceUnlockClick('${xref.name}')"><i class="material-icons">no_encryption</i></button>`;
             break;
-          case 'not_found':
-            actionsCol.innerHTML += `<button class="btn btn-warning-outline btn-sm" title="Relink File..." onclick="sketchup.relink_clicked('${xref.name}')"><i class="material-icons">link</i></button>`;
-            break;
         }
+        actionsCol.innerHTML += `<button class="btn btn-warning-outline btn-sm" title="Replace/Relink File..." onclick="sketchup.relink_clicked('${xref.name}')"><i class="material-icons">link</i></button>`;
         if (xref.found) {
           actionsCol.innerHTML += `<button class="btn btn-secondary-outline btn-sm" title="Reload" onclick="sketchup.reload_single_clicked('${xref.name}')"><i class="material-icons">sync</i></button>`;
         }
