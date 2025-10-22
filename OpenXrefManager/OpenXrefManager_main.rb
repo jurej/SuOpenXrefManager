@@ -22,6 +22,7 @@ module OpenXrefManager
   XREF_DICT_NAME = "OpenXrefManager::Xref"
   XREF_PATH_KEY = "path"
   XREF_PATH_TYPE_KEY = "path_type" # "absolute" or "relative"
+  XREF_UNLOADED_KEY = "is_unloaded" # true or false
   TIMER_INTERVAL = 5 # Seconds between background checks
   
   # Messagebox Result Constants
@@ -106,6 +107,7 @@ module OpenXrefManager
       file_found = absolute_path && File.exist?(absolute_path)
       path_type = definition.get_attribute(XREF_DICT_NAME, XREF_PATH_TYPE_KEY) || "absolute"
       can_be_relative = model.path && !model.path.empty?
+      is_unloaded = definition.get_attribute(XREF_DICT_NAME, XREF_UNLOADED_KEY) == true
       
       lock_content = self.get_xref_lock_status(definition)
       is_locked = lock_content != "unlocked"
@@ -114,8 +116,11 @@ module OpenXrefManager
       
       status_text = "Available"
       status_key = "ok"
-
-      if !file_found
+      
+      if is_unloaded
+        status_text = "Unloaded"
+        status_key = "unloaded"
+      elsif !file_found
         status_text = "File Not Found"
         status_key = "not_found"
       elsif is_locked
@@ -142,7 +147,8 @@ module OpenXrefManager
         path_type: path_type,
         can_be_relative: can_be_relative,
         lock_model: lock_model_name,
-        lock_model_path: lock_model_path
+        lock_model_path: lock_model_path,
+        is_unloaded: is_unloaded
       }
     end
     return data.to_json
@@ -243,6 +249,7 @@ module OpenXrefManager
     @dialog.add_action_callback("force_unlock_clicked") { |ctx, name| self.force_unlock_xref(name) }
     @dialog.add_action_callback("purge_unused_clicked") { |ctx| self.purge_unused_xrefs }
     @dialog.add_action_callback("relink_clicked") { |ctx, name| self.relink_xref(name) }
+    @dialog.add_action_callback("unload_single_clicked") { |ctx, name| self.unload_single_xref(name) }
     @dialog.add_action_callback("toggle_path_type_clicked") { |ctx, name| self.toggle_path_type(name) }
     @dialog.add_action_callback("select_component_clicked") { |ctx, name| self.select_component_instances(name) }
     @dialog.add_action_callback("close_dialog") { |ctx| @dialog.close }
@@ -659,6 +666,42 @@ module OpenXrefManager
     self.refresh_dialog_data
   end
 
+  # Unloads an XRef's geometry to improve performance.
+  def self.unload_single_xref(component_name)
+    model = Sketchup.active_model
+    definition = model.definitions.find { |d| d.name == component_name }
+    return unless definition
+    
+    lock_content = self.get_xref_lock_status(definition)
+    
+    # If it's locked by me, my local changes will be lost.
+    # The lock must be removed to avoid conflicts.
+    if lock_content != "unlocked"
+      lock_owner_name, lock_owner_guid, _, _ = lock_content.split('|')
+      if lock_owner_name == @user_name && lock_owner_guid == model.guid
+        # Locked by me in this window. Remove the lock.
+        lock_path = self.resolve_xref_path(definition)
+        lock_path += ".lock" if lock_path
+        File.delete(lock_path) if lock_path && File.exist?(lock_path)
+        @last_xref_statuses[definition.guid] = "unlocked" # Update cache
+      end
+    end
+
+    model.start_operation("Unload XRef", true)
+    # Clear all geometry from the definition
+    definition.entities.to_a.each { |e| e.erase! if e.valid? }
+    placeholder_group = definition.entities.add_group
+    placeholder_text = placeholder_group.definition.entities.add_text("XREF_PLACEHOLDER", [0,0,0])
+    placeholder_text.hidden = true
+    placeholder_group.hidden = true
+    # Set the flag so we know it's unloaded
+    definition.set_attribute(XREF_DICT_NAME, XREF_UNLOADED_KEY, true)
+    model.commit_operation
+    
+    # Refresh the UI
+    self.check_for_status_changes(show_notification: false)
+  end
+
   # Reloads all XRefs in the model after confirmation.
   def self.reload_all_xrefs
     xref_definitions = self.get_xref_definitions
@@ -692,21 +735,68 @@ module OpenXrefManager
   # The core logic for reloading an XRef from its file.
   def self.reload_single_xref_without_warning(component_name, suppress_errors: false)
     model = Sketchup.active_model
-    definition = model.definitions.find { |d| d.name == component_name }
-    return false unless definition
-    path = self.resolve_xref_path(definition)
+    # This is the original, "unloaded" definition (e.g., "Box")
+    original_definition = model.definitions.find { |d| d.name == component_name }
+    return false unless original_definition
+    
+    path = self.resolve_xref_path(original_definition)
     
     unless path && File.exist?(path)
       UI.messagebox("Cannot reload '#{component_name}'. File not found at:\n#{path}") unless suppress_errors
       return false
     end
-
+    
     model.start_operation("Reload XRef: #{component_name}", true)
     
     success = false
     begin
       reloaded_definition = model.definitions.load(path)
+      
+      if reloaded_definition && reloaded_definition != original_definition
+        
+        # Get all instances of the original (unloaded) definition.
+        # We use .to_a to make a copy before changing them.
+        instances = original_definition.instances.to_a
+        
+        # Point all instances to the newly loaded definition.
+        instances.each do |instance|
+          instance.definition = reloaded_definition if instance.valid?
+        end
+        
+        # Copy XRef attributes from the old shell to the new definition.
+        dict = original_definition.attribute_dictionary(XREF_DICT_NAME)
+        if dict
+          dict.each_pair do |key, value|
+            reloaded_definition.set_attribute(XREF_DICT_NAME, key, value)
+          end
+        end
+        
+        reloaded_definition.set_attribute(XREF_DICT_NAME, XREF_UNLOADED_KEY, false)
+        
+        # Remove XRef attributes from the OLD definition so it's
+        # no longer tracked and can be purged.
+        original_definition.attribute_dictionaries.delete(XREF_DICT_NAME)
+                
+        original_name = original_definition.name
+        
+        model.definitions.purge_unused
+        
+        if model.definitions[original_name].nil?
+          reloaded_definition.name = original_name
+        else
+          # Purge failed (rare, but possible). We're stuck with 'Box#1'.
+          puts "OpenXrefManager: Could not purge '#{original_name}'. " +
+               "Reloaded XRef remains as '#{reloaded_definition.name}'."
+        end
+                
+      elsif reloaded_definition && reloaded_definition == original_definition
+         # This path happens if the definition was *already* purged.
+         # In this case, just set the unloaded flag to false.
+         reloaded_definition.set_attribute(XREF_DICT_NAME, XREF_UNLOADED_KEY, false)
+      end
+      
       success = !reloaded_definition.nil?
+      
     rescue => e
       UI.messagebox("Failed to reload #{component_name}.\nError: #{e.message}") unless suppress_errors
       success = false

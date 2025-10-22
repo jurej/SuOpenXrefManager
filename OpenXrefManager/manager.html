@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Open XRef Manager v1.3b</title>
+  <title>Open XRef Manager</title>
     <link href="modus/modus.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
 
@@ -53,7 +53,7 @@
       cursor: pointer;
     }
     /* Flexbox Column Widths */
-    .col-name { flex: 1 1 30%; min-width: 150px; }
+    .col-name { flex: 1 1 30%; min-width: 100px; max-width: 300px; }
     .col-status { flex: 0 0 140px; }
     .col-path { flex: 1 1 30%; min-width: 150px; }
     .col-pathtype { flex: 0 0 120px; text-align: center; }
@@ -140,6 +140,7 @@
           case 'mine': bgClass = 'bg-primary'; break;
           case 'locked': bgClass = 'bg-secondary'; break;
           case 'mine_elsewhere': bgClass = 'bg-warning'; textClass = 'text-dark'; break;
+          case 'unloaded': bgClass = 'bg-secondary'; break;  
           default: bgClass = 'bg-light'; textClass = 'text-dark';
         }
         let titleAttr = '';
@@ -202,7 +203,13 @@
         }
         actionsCol.innerHTML += `<button class="btn btn-warning-outline btn-sm" title="Replace/Relink File..." onclick="sketchup.relink_clicked('${xref.name}')"><i class="material-icons">link</i></button>`;
         if (xref.found) {
-          actionsCol.innerHTML += `<button class="btn btn-secondary-outline btn-sm" title="Reload" onclick="sketchup.reload_single_clicked('${xref.name}')"><i class="material-icons">sync</i></button>`;
+          if (xref.is_unloaded) {
+            // Show LOAD button
+            actionsCol.innerHTML += `<button class="btn btn-success-outline btn-sm" title="Load XRef" onclick="sketchup.reload_single_clicked('${xref.name}')"><i class="material-icons">sync</i></button>`;
+          } else {
+            // Show UNLOAD button
+            actionsCol.innerHTML += `<button class="btn btn-secondary-outline btn-sm" title="Unload XRef" onclick="handleUnloadClick('${xref.name}')"><i class="material-icons">visibility_off</i></button>`;
+          }
         }
         actionsCol.innerHTML += `<button class="btn btn-danger-outline btn-sm" title="Unlink" onclick="handleUnlinkClick('${xref.name}')"><i class="material-icons">link_off</i></button>`;
         row.appendChild(actionsCol);
@@ -214,6 +221,12 @@
     function handleUnlinkClick(name) {
       if (confirm(`Are you sure you want to unlink "${name}"?\nThis cannot be undone.`)) {
         if (sketchup) { sketchup.unlink_single_clicked(name); }
+      }
+    }
+
+    function handleUnloadClick(name) {
+      if (confirm(`Are you sure you want to unload "${name}"?\n\nThis will remove it from the model to improve performance but keep the link so you can load it back at any time. \n\nAny ucommited changes will be lost.`)) {
+        if (sketchup) { sketchup.unload_single_clicked(name); }
       }
     }
 
