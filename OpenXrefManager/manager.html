@@ -150,8 +150,10 @@
         let textClass = 'text-white';
         switch(xref.status_key) {
           case 'ok': bgClass = 'bg-success'; break;
-          case 'not_found': bgClass = 'bg-danger'; break;
-          actionsCol.innerHTML += `<button class="btn btn-warning-outline btn-sm" title="Relink File..." onclick="sketchup.relink_clicked('${xref.name}')"><i class="material-icons">link</i></button>`;
+          case 'not_found':
+            bgClass = 'bg-danger';
+            actionsCol.innerHTML += `<button class="btn btn-warning-outline btn-sm" title="Relink File..." onclick="sketchup.relink_clicked('${xref.name}')"><i class="material-icons">link</i></button>`;
+            break;
           case 'mine': bgClass = 'bg-primary'; break;
           case 'locked': bgClass = 'bg-secondary'; break;
           case 'mine_elsewhere': bgClass = 'bg-warning'; textClass = 'text-dark'; break;
