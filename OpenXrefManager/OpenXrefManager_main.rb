@@ -1093,8 +1093,9 @@ module OpenXrefManager
             if lock_owner_name == @user_name && lock_owner_guid == model.guid
               submenu.add_item("Save & Check In XRef") { self.save_and_check_in_xref(definition.name) }
             else
-              item = submenu.add_item("Locked by #{lock_owner_name}")
-              item.set_validation_proc { MF_GRAYED }
+              cmd_locked = UI::Command.new("Locked by #{lock_owner_name}") { }
+              cmd_locked.set_validation_proc { MF_GRAYED }
+              submenu.add_item(cmd_locked)
             end
           else
             submenu.add_item("Check Out XRef") { self.check_out_xref(definition.name) }
