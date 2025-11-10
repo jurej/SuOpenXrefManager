@@ -247,9 +247,9 @@
         let loadButton = '';
         if (xref.found) {
           if (xref.is_unloaded) {
-            loadButton = `<button class="btn btn-sm" title="Load XRef" onclick="sketchup.reload_single_clicked('${xref.name}')"><i class="material-icons">sync</i></button>`;
+            loadButton = `<button class="btn btn-info btn-sm" title="Load XRef" onclick="sketchup.reload_single_clicked('${xref.name}')"><i class="material-icons">sync</i></button>`;
           } else {
-            loadButton = `<button class="btn btn-sm" title="Unload XRef" onclick="handleUnloadClick('${xref.name}')"><i class="material-icons">visibility_off</i></button>`;
+            loadButton = `<button class="btn btn-info btn-sm" title="Unload XRef" onclick="handleUnloadClick('${xref.name}')"><i class="material-icons">visibility_off</i></button>`;
           }
         } else {
             loadButton = `<button class="btn btn-sm" disabled><i class="material-icons">sync_disabled</i></button>`;
@@ -266,29 +266,25 @@
     }
 
     function handleUnlinkClick(name) {
-      if (confirm(`Are you sure you want to unlink "${name}"?\nThis cannot be undone.`)) {
-        if (sketchup) { sketchup.unlink_single_clicked(name); }
-      }
+      // Confirmation handled in Ruby for reliability
+      if (sketchup) { sketchup.unlink_single_clicked(name); }
     }
 
     function handleUnloadClick(name) {
-      if (confirm(`Are you sure you want to unload "${name}"?\n\nThis will remove it from the model to improve performance but keep the link so you can load it back at any time. \n\nAny ucommited changes will be lost.`)) {
-        if (sketchup) { sketchup.unload_single_clicked(name); }
-      }
+      // Confirmation handled in Ruby for reliability
+      if (sketchup) { sketchup.unload_single_clicked(name); }
     }
 
     function handleForceUnlockClick(name) {
-      if (confirm(`WARNING: You are about to force unlock a component checked out by another user.\n\nThis can lead to data loss if they are actively working on the file.\n\nAre you sure you want to continue?`)) {
-        if (sketchup) { sketchup.force_unlock_clicked(name); }
-      }
+      // Confirmation handled in Ruby for reliability
+      if (sketchup) { sketchup.force_unlock_clicked(name); }
     }
 
     closeButton.onclick = function() { if (sketchup) { sketchup.close_dialog(); } };
     publishAllButton.onclick = function() { if (sketchup) { sketchup.publish_all_clicked(); } };
     purgeButton.onclick = function() {
-      if (confirm("Are you sure you want to remove all unused XRefs from this model?\nThis action cannot be undone and will skip any locked files.")) {
-        if (sketchup) { sketchup.purge_unused_clicked(); }
-      }
+      // Confirmation handled in Ruby for reliability
+      if (sketchup) { sketchup.purge_unused_clicked(); }
     };
     refreshButton.onclick = function() {
       requestDataRefresh();
