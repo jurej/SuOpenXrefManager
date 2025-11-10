@@ -54,8 +54,8 @@
     }
     /* Flexbox Column Widths */
     .col-name { flex: 1 1 30%; min-width: 100px; max-width: 300px; }
-    .col-status { flex: 0 0 140px; }
-    .col-path { flex: 1 1 30%; min-width: 150px; }
+    .col-status { flex: 0 0 min-width: 300px; max-width: 600px; }
+    .col-path { flex: 1 1 30%; min-width: 100px; }
     .col-pathtype { flex: 0 0 120px; text-align: center; }
     .col-timestamp { flex: 0 0 140px; }
     .col-actions { flex: 0 0 160px; }
@@ -163,20 +163,41 @@
         let titleAttr = '';
         if (xref.update_available) {
           let titleText = `File updated at: ${formatTimestamp(xref.file_timestamp)}`;
+          
           if (xref.is_locked && xref.lock_model) {
-            titleText += `\nLocked in: ${xref.lock_model}`;
+            // If it's locked, the lock info is more important
+            titleText += `\n\nStatus: Locked by ${xref.lock_owner_name}`;
+            titleText += `\nIn File: ${xref.lock_model}`;
+            if (xref.lock_model_path && xref.lock_model_path !== "") {
+               titleText += `\nFile Path: ${xref.lock_model_path}`;
+            }
+          } else if (xref.last_publisher_name) {
+            // If not locked, show who last published it
+            titleText += `\n\nLast Published by: ${xref.last_publisher_name}`;
+            if (xref.last_publisher_path) {
+              titleText += `\nFrom Path: ${xref.last_publisher_path}`;
+            }
           }
-          if (xref.lock_model_path && xref.lock_model_path !== "") {
-             titleText += `\nModified in file: ${xref.lock_model_path}`;
-          }
-
           titleAttr = `title="${titleText}"`;
+          
         } else if (xref.status_key == 'locked' || xref.status_key == 'mine_elsewhere') {
-          let titleText = `Locked in: ${xref.lock_model}`;
+          // This is for files that are *only* locked (no update)
+          let titleText = `Locked by: ${xref.lock_owner_name}`;
+          titleText += `\nIn File: ${xref.lock_model}`;
           if (xref.lock_model_path && xref.lock_model_path !== "") {
-             titleText += `\nModified in file: ${xref.lock_model_path}`;
+             titleText += `\nFile Path: ${xref.lock_model_path}`;
           }
           titleAttr = `title="${titleText}"`;
+
+        } else if (xref.status_key == 'ok' || xref.status_key == 'unloaded') {
+          // Show 'last published' info for available/unloaded files
+          if (xref.last_publisher_name) {
+            let titleText = `Last Published by: ${xref.last_publisher_name}`;
+            if (xref.last_publisher_path) {
+              titleText += `\nFrom Path: ${xref.last_publisher_path}`;
+            }
+            titleAttr = `title="${titleText}"`;
+          }
         }
         statusCol.innerHTML = `<span class="badge ${bgClass} ${textClass}" ${titleAttr}>${xref.status}</span>`;
         row.appendChild(statusCol);
@@ -248,7 +269,7 @@
         let loadButton = '';
         if (xref.found) {
           if (xref.is_unloaded) {
-            loadButton = `<button class="btn btn-sm" title="Load XRef" onclick="sketchup.reload_single_clicked('${xref.name}')"><i class="material-icons">sync</i></button>`;
+            loadButton = `<button class="btn btn-sm" title="Reload XRef" onclick="sketchup.reload_single_clicked('${xref.name}')"><i class="material-icons">sync</i></button>`;
           } else {
             loadButton = `<button class="btn btn-sm" title="Unload XRef" onclick="handleUnloadClick('${xref.name}')"><i class="material-icons">visibility_off</i></button>`;
           }

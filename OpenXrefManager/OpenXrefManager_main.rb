@@ -1,4 +1,4 @@
-# v1.3.3
+# v1.3.4
 # Copyright (c) 2025 Your Name or Company Name
 #
 # This program is free software; you can redistribute it and/or modify
@@ -24,6 +24,9 @@ module OpenXrefManager
   XREF_PATH_TYPE_KEY = "path_type" # "absolute" or "relative"
   XREF_UNLOADED_KEY = "is_unloaded" # true or false
   XREF_TIMESTAMP_KEY = "timestamp"
+  XREF_LAST_PUBLISHER_NAME_KEY = "last_publisher_name"
+  XREF_LAST_PUBLISHER_MODEL_KEY = "last_publisher_model"
+  XREF_LAST_PUBLISHER_PATH_KEY = "last_publisher_path"
   TIMER_INTERVAL = 5 # Seconds between background checks
   
   # Messagebox Result Constants
@@ -152,6 +155,10 @@ module OpenXrefManager
         end
       end
 
+      last_publisher_name = definition.get_attribute(XREF_DICT_NAME, XREF_LAST_PUBLISHER_NAME_KEY)
+      last_publisher_model = definition.get_attribute(XREF_DICT_NAME, XREF_LAST_PUBLISHER_MODEL_KEY)
+      last_publisher_path = definition.get_attribute(XREF_DICT_NAME, XREF_LAST_PUBLISHER_PATH_KEY)
+
       if is_unloaded
         status_text = "Unloaded"
         status_key = "unloaded"
@@ -164,7 +171,7 @@ module OpenXrefManager
       elsif is_locked
         if lock_owner_name == @user_name
           status_key = (lock_owner_guid == current_guid) ? "mine" : "mine_elsewhere"
-          status_text = "Checked Out by You" + (status_key == "mine_elsewhere" ? " (in another model)" : "")
+          status_text = "Checked Out by You" + (status_key == "mine_elsewhere" ? " (Elsewhere)" : "")
         else
           status_text = "Locked by #{lock_owner_name}"
           status_key = "locked"
@@ -187,7 +194,10 @@ module OpenXrefManager
         is_unloaded: is_unloaded,
         timestamp: stored_timestamp,
         file_timestamp: file_timestamp,
-        update_available: update_available
+        update_available: update_available,
+        last_publisher_name: last_publisher_name,
+        last_publisher_model: last_publisher_model,
+        last_publisher_path: last_publisher_path
       }
     end
     return data.to_json
@@ -561,6 +571,17 @@ module OpenXrefManager
     begin
       definition.save_as(path)
       self._update_xref_timestamp(definition)
+
+      # Store last publisher info
+      model = definition.model
+      model_path = model.path
+      model_name = (model_path.nil? || model_path.empty?) ? "Untitled Model" : File.basename(model_path)
+      model_path_str = model_path.nil? ? "" : model_path
+      
+      definition.set_attribute(XREF_DICT_NAME, XREF_LAST_PUBLISHER_NAME_KEY, @user_name)
+      definition.set_attribute(XREF_DICT_NAME, XREF_LAST_PUBLISHER_MODEL_KEY, model_name)
+      definition.set_attribute(XREF_DICT_NAME, XREF_LAST_PUBLISHER_PATH_KEY, model_path_str)
+
       lock_path = path + ".lock"
       File.delete(lock_path) if File.exist?(lock_path)
       @last_xref_statuses[definition.guid] = { lock_content: "unlocked", update_available: false }
@@ -788,7 +809,7 @@ module OpenXrefManager
     model.commit_operation
     
     # Refresh the UI
-    self.check_for_status_changes(show_notification: false)
+    self.refresh_dialog_data
   end
 
   # Reloads all XRefs in the model after confirmation.
@@ -1199,7 +1220,7 @@ module OpenXrefManager
     end
     
     # --- Toolbar ---
-    toolbar = UI::Toolbar.new("Open XRef")
+    toolbar = UI::Toolbar.new("Open XRef Manager")
 
     cmd_manager = UI::Command.new("XRef Manager") { self.show_manager_dialog }
     cmd_manager.tooltip = "Open the XRef Manager"
@@ -1222,7 +1243,7 @@ module OpenXrefManager
     toolbar.restore
 
     # --- Menus ---
-    menu = UI.menu("Extensions").add_submenu("Open XRef")
+    menu = UI.menu("Extensions").add_submenu("Open XRef Manager")
     menu.add_item(cmd_manager)
     menu.add_item(cmd_publish)
     menu.add_item("Set User Name...") { self.set_user_name }
@@ -1238,8 +1259,7 @@ module OpenXrefManager
       model = Sketchup.active_model
       return unless model && model.valid?
       selection = model.selection
-      
-      submenu = context_menu.add_submenu("Open XRef")
+      submenu = context_menu.add_submenu("Open XRef Manager")
       
       if selection.length == 1 && selection.first.is_a?(Sketchup::ComponentInstance)
         instance = selection.first
