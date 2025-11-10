@@ -1,4 +1,4 @@
-# v1.3.2
+# v1.3.3
 # Copyright (c) 2025 Your Name or Company Name
 #
 # This program is free software; you can redistribute it and/or modify
@@ -199,6 +199,36 @@ module OpenXrefManager
     # Store as a Unix integer (seconds since epoch)
     definition.set_attribute(XREF_DICT_NAME, XREF_TIMESTAMP_KEY, Time.now.to_i)
   end
+
+  # Helper method to check if the user has any XRefs checked out.
+  def self.has_uncommitted_changes?
+    model = Sketchup.active_model
+    return false unless model && model.valid?
+    current_guid = model.guid
+    
+    my_xrefs = self.get_xref_definitions.select do |definition|
+      lock_content = self.get_xref_lock_status(definition)
+      next false if lock_content == "unlocked"
+      lock_owner_name, lock_owner_guid = lock_content.split('|')
+      # Check for XRefs locked by this user in THIS window
+      lock_owner_name == @user_name && lock_owner_guid == current_guid
+    end
+    
+    return !my_xrefs.empty?
+  end
+
+  # Helper method to show a confirmation dialog.
+  # Returns true if the user wants to continue (lose changes), false otherwise.
+  def self.confirm_close_with_uncommitted_changes?(action_text = "continue")
+    return true unless self.has_uncommitted_changes?
+    
+    question = "You have XRefs checked out with uncommitted changes.\n\n" +
+               "If you #{action_text}, these changes will be lost.\n\n" +
+               "Do you want to continue?"
+    result = UI.messagebox(question, MB_YESNO)
+    
+    return result == IDYES # Continue if 'Yes', cancel if 'No'
+  end
   
   # --- Live Update Timer ---
   
@@ -230,7 +260,11 @@ module OpenXrefManager
 
     get_xref_definitions.each do |definition|
       update_available = self._is_update_available?(definition)
-      something_changed = true if update_available
+      # Check if update status *changed*
+      last_update_status = @last_xref_statuses[definition.guid] ? @last_xref_statuses[definition.guid][:update_available] : false
+      if update_available != last_update_status
+        something_changed = true
+      end
 
       current_lock_content = self.get_xref_lock_status(definition)
       is_locked_by_file = current_lock_content != "unlocked"
@@ -246,7 +280,7 @@ module OpenXrefManager
       self.lock_or_unlock_instances_for_definition(definition, should_be_locked)
       
       # Compare with last known status to see if a notification is needed.
-      last_lock_content = @last_xref_statuses[definition.guid] || "unlocked"
+      last_lock_content = @last_xref_statuses[definition.guid] ? @last_xref_statuses[definition.guid][:lock_content] : "unlocked"
       if current_lock_content != last_lock_content
         something_changed = true
         if show_notification
@@ -259,7 +293,8 @@ module OpenXrefManager
           end
         end
       end
-      @last_xref_statuses[definition.guid] = current_lock_content
+      # Store both lock and update status
+      @last_xref_statuses[definition.guid] = { lock_content: current_lock_content, update_available: update_available }
     end
     
     # Refresh the dialog if something changed
@@ -507,7 +542,7 @@ module OpenXrefManager
         lock_content = "#{@user_name}|#{model.guid}|#{model_name}|#{model_path_str}"
 
         File.write(lock_path, lock_content)
-        @last_xref_statuses[definition.guid] = lock_content
+        @last_xref_statuses[definition.guid] = { lock_content: lock_content, update_available: _is_update_available?(definition) }
         self.lock_or_unlock_instances_for_definition(definition, false)
       rescue => e
         UI.messagebox("Failed to create lock file:\n#{e.message}")
@@ -528,7 +563,7 @@ module OpenXrefManager
       self._update_xref_timestamp(definition)
       lock_path = path + ".lock"
       File.delete(lock_path) if File.exist?(lock_path)
-      @last_xref_statuses[definition.guid] = "unlocked"
+      @last_xref_statuses[definition.guid] = { lock_content: "unlocked", update_available: false }
       return true
     rescue => e
       UI.messagebox("Failed to save component '#{definition.name}'.\nError: #{e.message}")
@@ -737,7 +772,7 @@ module OpenXrefManager
         lock_path = self.resolve_xref_path(definition)
         lock_path += ".lock" if lock_path
         File.delete(lock_path) if lock_path && File.exist?(lock_path)
-        @last_xref_statuses[definition.guid] = "unlocked" # Update cache
+        @last_xref_statuses[definition.guid] = { lock_content: "unlocked", update_available: _is_update_available?(definition) } # Update cache
       end
     end
 
@@ -889,7 +924,7 @@ module OpenXrefManager
         lock_content = "#{@user_name}|#{new_guid}|#{model_name}|#{model_path_str}"
 
         File.write(lock_path, lock_content)
-        @last_xref_statuses[definition.guid] = lock_content # Update cache
+        @last_xref_statuses[definition.guid] = { lock_content: lock_content, update_available: _is_update_available?(definition) } # Update cache
       rescue => e
         puts "Could not update lock file #{lock_path}: #{e.message}"
       end
@@ -908,19 +943,37 @@ module OpenXrefManager
       definition = entity.definition
       return unless OpenXrefManager.is_xref?(definition)
 
+      # Check both lock status and update status
       lock_content = OpenXrefManager.get_xref_lock_status(definition)
-      return if lock_content == "unlocked"
-
-      lock_owner_name, lock_owner_guid, lock_model_name, _ = lock_content.split('|')
-      lock_model_name ||= "an unsaved model"
-      is_mine_in_this_window = (lock_owner_name == OpenXrefManager.instance_variable_get(:@user_name) && lock_owner_guid == entities.model.guid)
+      is_locked_by_file = lock_content != "unlocked"
+      is_mine_in_this_window = false
+      lock_owner_name = nil
+      lock_model_name = nil
       
-      # If the instance was unlocked, but shouldn't have been, re-lock it immediately.
-      unless is_mine_in_this_window
+      if is_locked_by_file
+        lock_owner_name, lock_owner_guid, lock_model_name, _ = lock_content.split('|')
+        lock_model_name ||= "an unsaved model"
+        is_mine_in_this_window = (lock_owner_name == OpenXrefManager.instance_variable_get(:@user_name) && lock_owner_guid == entities.model.guid)
+      end
+
+      update_available = OpenXrefManager._is_update_available?(definition)
+
+      # Determine if the instance should be forced back to a locked state
+      # Re-lock if it's locked by someone else OR if an update is available.
+      should_be_locked = (is_locked_by_file && !is_mine_in_this_window) || update_available
+      
+      if should_be_locked
         # Use a short timer to avoid issues with modifying the model during a notification.
         UI.start_timer(0.01, false) do
           entity.locked = true if entity.valid?
-          Sketchup.set_status_text("Cannot unlock: '#{definition.name}' is checked out by #{lock_owner_name} in '#{lock_model_name}'.")        end
+          
+          # Set the appropriate status bar message
+          if update_available
+            Sketchup.set_status_text("Cannot unlock: '#{definition.name}' has an update available.")
+          elsif is_locked_by_file # This must be true if update_available was false
+            Sketchup.set_status_text("Cannot unlock: '#{definition.name}' is checked out by #{lock_owner_name} in '#{lock_model_name}'.")
+          end
+        end
       end
     end
   end
@@ -930,15 +983,32 @@ module OpenXrefManager
     def initialize
       @definition_to_relink = nil
       @guid_before_save = Sketchup.active_model.guid
+      @operation_aborted = false
     end
 
     # Re-check status after an undo operation.
     def onTransactionUndo(model)
+      # If a save was aborted, don't run subsequent observers
+      if @operation_aborted
+        @operation_aborted = false # Reset flag
+        return
+      end
       UI.start_timer(0.1, false) { OpenXrefManager.check_for_status_changes(show_notification: false) }
     end
 
     # Add an observer for when the model is saved.
     def onSaveModel(model)
+      # This is called when user saves *before* a File > New or File > Open.
+      # We check for uncommitted XRefs here.
+      if OpenXrefManager.has_uncommitted_changes?
+        unless OpenXrefManager.confirm_close_with_uncommitted_changes?("save the main model")
+          # Returning false aborts the save operation.
+          @operation_aborted = true
+          return false
+        end
+      end
+      @operation_aborted = false # Reset flag
+
       new_guid = model.guid
       # If the GUID changed after saving,
       # find all lock files owned by this user from the previous session state and update them.
@@ -949,6 +1019,7 @@ module OpenXrefManager
 
       # Run a status check after a save to refresh the UI.
       UI.start_timer(0.1, false) { OpenXrefManager.check_for_status_changes(show_notification: false) }
+      return true # Explicitly allow save
     end
     
     # Handles auto-checkout when a user starts editing an XRef.
@@ -1042,11 +1113,51 @@ module OpenXrefManager
     def onOpenModel(model)
       attach_observers(model)
       OpenXrefManager.refresh_dialog_data
+      UI.start_timer(0, false) do
+        self.check_xrefs_and_show_manager
+      end
     end
     def onQuit()
       OpenXrefManager.stop_timer
     end
     
+    # Check statuses and show dialog
+    def check_xrefs_and_show_manager
+      # Make sure model is valid
+      model = Sketchup.active_model
+      return unless model && model.valid?
+      
+      # We can leverage the get_xref_data_as_json method to get statuses,
+      # but we need to parse the JSON it returns.
+      json_data = OpenXrefManager.get_xref_data_as_json
+      
+      # Avoid parsing if it's an empty list
+      return if json_data == "[]" 
+      
+      require 'json' # Make sure JSON is available
+      begin
+        xref_data = JSON.parse(json_data)
+      rescue JSON::ParserError => e
+        puts "OpenXrefManager: Error parsing XRef data on open: #{e.message}"
+        return
+      end
+
+      # Check if any XRef has a status_key other than "ok" (which is "Available")
+      needs_attention = xref_data.any? do |xref|
+        xref['status_key'] != 'ok'
+      end
+
+      if needs_attention
+        # Don't show if it's already visible
+        dialog = OpenXrefManager.instance_variable_get(:@dialog)
+        if dialog.nil? || !dialog.visible?
+          OpenXrefManager.show_manager_dialog
+        else
+          dialog.bring_to_front
+        end
+      end
+    end
+
     # Attaches model and entities observers to a given model.
     def attach_observers(model)
       detach_observers(model) # Ensure no old observers are lingering

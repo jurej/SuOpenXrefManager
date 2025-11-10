@@ -150,14 +150,14 @@
         let bgClass = '';
         let textClass = 'text-white';
         switch(xref.status_key) {
-          case 'ok': bgClass = 'bg-success'; break;
+          case 'ok': textClass = 'text-success'; break;
           case 'not_found': textClass = 'text-danger'; break;
-          case 'mine': bgClass = 'bg-primary'; break;
-          case 'locked': bgClass = 'bg-secondary'; break;
-          case 'mine_elsewhere': bgClass = 'bg-warning'; textClass = 'text-dark'; break;
-          case 'unloaded': bgClass = 'bg-secondary'; break;
-          case 'update_available': bgClass = 'bg-danger'; break;
-          default: bgClass = 'bg-light'; textClass = 'text-dark';
+          case 'mine': textClass = 'text-primary'; break;
+          case 'locked': textClass = 'text-secondary'; break;
+          case 'mine_elsewhere': textClass = 'text-warning'; break;
+          case 'unloaded': textClass = 'text-secondary'; break;
+          case 'update_available': textClass = 'text-danger'; break;
+          default: textClass = 'bg-light'; textClass = 'text-dark';
         }
 
         let titleAttr = '';
@@ -165,10 +165,11 @@
           let titleText = `File updated at: ${formatTimestamp(xref.file_timestamp)}`;
           if (xref.is_locked && xref.lock_model) {
             titleText += `\nLocked in: ${xref.lock_model}`;
-            if (xref.lock_model_path && xref.lock_model_path !== "") {
-               titleText += `\nPath: ${xref.lock_model_path}`;
-            }
           }
+          if (xref.lock_model_path && xref.lock_model_path !== "") {
+             titleText += `\nModified in file: ${xref.lock_model_path}`;
+          }
+
           titleAttr = `title="${titleText}"`;
         } else if (xref.status_key == 'locked' || xref.status_key == 'mine_elsewhere') {
           let titleText = `Locked in: ${xref.lock_model}`;
@@ -217,7 +218,7 @@
         if (xref.is_locked) {
             switch (xref.status_key) {
                 case 'mine':
-                    lockButton = `<button class="btn btn-primary btn-sm" title="Save & Check In" onclick="sketchup.save_and_check_in_clicked('${xref.name}')"><i class="material-icons">lock</i></button>`;
+                    lockButton = `<button class="btn btn-primary btn-sm" title="Save & Check In" onclick="sketchup.save_and_check_in_clicked('${xref.name}')"><i class="material-icons">save_as</i></button>`;
                     break;
                 case 'mine_elsewhere':
                     lockButton = `<button class="btn btn-info btn-sm" title="Force Check In" onclick="sketchup.force_check_in_clicked('${xref.name}')"><i class="material-icons">lock</i></button>`;
