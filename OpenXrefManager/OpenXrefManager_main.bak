@@ -1,4 +1,4 @@
-# v1.3.2
+# v1.3.3
 # Copyright (c) 2025 Your Name or Company Name
 #
 # This program is free software; you can redistribute it and/or modify
@@ -73,27 +73,6 @@ module OpenXrefManager
     !definition.get_attribute(XREF_DICT_NAME, XREF_PATH_KEY).nil?
   end
   
-  # Checks if a given XRef definition has a newer version available on disk.
-  def self._is_update_available?(definition)
-    return false unless self.is_xref?(definition)
-
-    absolute_path = self.resolve_xref_path(definition)
-    file_found = absolute_path && File.exist?(absolute_path)
-    is_unloaded = definition.get_attribute(XREF_DICT_NAME, XREF_UNLOADED_KEY) == true
-    stored_timestamp = definition.get_attribute(XREF_DICT_NAME, XREF_TIMESTAMP_KEY)
-
-    # An update can't be available if the file isn't found, is unloaded, or has never been loaded.
-    return false unless file_found && !is_unloaded && stored_timestamp
-
-    begin
-      file_timestamp = File.mtime(absolute_path).to_i
-      return file_timestamp > stored_timestamp
-    rescue => e
-      puts "Could not get mtime for #{absolute_path}: #{e.message}"
-      return false
-    end
-  end
-  
   # Reads the lock file for a given XRef and returns its content (owner|guid).
   def self.get_xref_lock_status(definition)
     path = self.resolve_xref_path(definition)
@@ -130,38 +109,57 @@ module OpenXrefManager
       path_type = definition.get_attribute(XREF_DICT_NAME, XREF_PATH_TYPE_KEY) || "absolute"
       can_be_relative = model.path && !model.path.empty?
       is_unloaded = definition.get_attribute(XREF_DICT_NAME, XREF_UNLOADED_KEY) == true
+      stored_timestamp = definition.get_attribute(XREF_DICT_NAME, XREF_TIMESTAMP_KEY)
       
+      # --- MODIFICATION START: Check for outdated files ---
+      is_outdated = false
+      if file_found && !is_unloaded && stored_timestamp
+        begin
+          file_mtime = File.mtime(absolute_path).to_i
+          is_outdated = file_mtime > stored_timestamp
+        rescue => e
+          puts "Could not get mtime for #{absolute_path}: #{e.message}"
+          is_outdated = false # Fail safe
+        end
+      end
+      # --- MODIFICATION END ---
+
       lock_content = self.get_xref_lock_status(definition)
       is_locked = lock_content != "unlocked"
-      lock_owner_name, lock_owner_guid, lock_model_name, lock_model_path = is_locked ? lock_content.split('|') : [nil, nil, nil, nil]
-      lock_model_name ||= "Untitled Model" if is_locked
-      lock_model_path ||= "" if is_locked
+      lock_model_name = nil
+      lock_model_path = nil
       
-      stored_timestamp = definition.get_attribute(XREF_DICT_NAME, XREF_TIMESTAMP_KEY)
-
       status_text = "Available"
       status_key = "ok"
       
-      update_available = self._is_update_available?(definition)
-      file_timestamp = nil
-      if file_found
-        begin
-          file_timestamp = File.mtime(absolute_path).to_i
-        rescue => e
-           file_timestamp = nil # Could not get timestamp
-        end
-      end
-
+      # --- MODIFICATION START: Status logic priority ---
       if is_unloaded
         status_text = "Unloaded"
         status_key = "unloaded"
       elsif !file_found
         status_text = "File Not Found"
         status_key = "not_found"
-      elsif update_available
+      elsif is_outdated
         status_text = "Update Available"
         status_key = "update_available"
+        # Append lock status text if it's also locked
+        if is_locked
+          lock_owner_name, lock_owner_guid, lock_model_name, lock_model_path = lock_content.split('|')
+          lock_model_name ||= "Untitled Model"
+          lock_model_path ||= ""
+
+          if lock_owner_name == @user_name
+            is_mine = (lock_owner_guid == current_guid)
+            status_text += is_mine ? " (Checked Out by You)" : " (Checked Out by You Elsewhere)"
+          else
+            status_text += " (Locked by #{lock_owner_name})"
+          end
+        end
       elsif is_locked
+        lock_owner_name, lock_owner_guid, lock_model_name, lock_model_path = lock_content.split('|')
+        lock_model_name ||= "Untitled Model" # Fallback for old lock files
+        lock_model_path ||= "" # Fallback
+
         if lock_owner_name == @user_name
           status_key = (lock_owner_guid == current_guid) ? "mine" : "mine_elsewhere"
           status_text = "Checked Out by You" + (status_key == "mine_elsewhere" ? " (in another model)" : "")
@@ -170,24 +168,22 @@ module OpenXrefManager
           status_key = "locked"
         end
       end
+      # --- MODIFICATION END ---
       
       { 
         name: definition.name, 
         path: absolute_path, 
         stored_path: stored_path,
         status: status_text, 
-        status_key: status_key, 
+        status_key: status_key,
+        is_outdated: is_outdated, # <-- MODIFICATION: Pass flag to UI
         found: file_found,
         path_type: path_type,
         can_be_relative: can_be_relative,
-        is_locked: is_locked,
-        lock_owner_name: lock_owner_name,
-        lock_model_name: lock_model_name,
+        lock_model: lock_model_name,
         lock_model_path: lock_model_path,
         is_unloaded: is_unloaded,
-        timestamp: stored_timestamp,
-        file_timestamp: file_timestamp,
-        update_available: update_available
+        timestamp: stored_timestamp
       }
     end
     return data.to_json
@@ -229,28 +225,24 @@ module OpenXrefManager
     something_changed = false
 
     get_xref_definitions.each do |definition|
-      update_available = self._is_update_available?(definition)
-      something_changed = true if update_available
-
       current_lock_content = self.get_xref_lock_status(definition)
-      is_locked_by_file = current_lock_content != "unlocked"
+      is_locked = current_lock_content != "unlocked"
       is_mine_in_this_window = false
       
-      if is_locked_by_file
+      if is_locked
         lock_owner_name, lock_owner_guid, _, _ = current_lock_content.split('|')
         is_mine_in_this_window = (lock_owner_name == @user_name && lock_owner_guid == current_guid)
       end
       
-      # Lock instances if locked by someone else OR if an update is available.
-      should_be_locked = (is_locked_by_file && !is_mine_in_this_window) || update_available
-      self.lock_or_unlock_instances_for_definition(definition, should_be_locked)
-      
+      # Lock instances if the XRef is locked by someone else.
+      self.lock_or_unlock_instances_for_definition(definition, is_locked && !is_mine_in_this_window)
+
       # Compare with last known status to see if a notification is needed.
       last_lock_content = @last_xref_statuses[definition.guid] || "unlocked"
       if current_lock_content != last_lock_content
         something_changed = true
         if show_notification
-          if !is_locked_by_file
+          if !is_locked
             Sketchup.set_status_text("XRef Status: '#{definition.name}' was checked in.")
           else
             lock_owner_name, _, lock_model_name, _ = current_lock_content.split('|')
@@ -291,7 +283,10 @@ module OpenXrefManager
     # Register callbacks for actions triggered from the JavaScript UI.
     @dialog.add_action_callback("refresh_data") { |ctx| self.refresh_dialog_data }
     @dialog.add_action_callback("publish_all_clicked") { |ctx| self.save_and_check_in_all_my_xrefs }
-    @dialog.add_action_callback("reload_single_clicked") { |ctx, name, suppress_warning| self.reload_single_xref(name, suppress_warning: suppress_warning) }
+    @dialog.add_action_callback("reload_single_clicked") { |ctx, name| self.reload_single_xref(name) }
+    # --- MODIFICATION START: Add new callback ---
+    @dialog.add_action_callback("reload_single_no_warning_clicked") { |ctx, name| self.reload_single_xref_without_warning(name) }
+    # --- MODIFICATION END ---
     @dialog.add_action_callback("unlink_single_clicked") { |ctx, name| self.unlink_single_xref(name) }
     @dialog.add_action_callback("check_out_clicked") { |ctx, name| self.check_out_xref(name) }
     @dialog.add_action_callback("save_and_check_in_clicked") { |ctx, name| self.save_and_check_in_xref(name) }
@@ -693,13 +688,11 @@ module OpenXrefManager
   end
 
   # Reloads a single XRef after confirming with the user.
-  def self.reload_single_xref(component_name, suppress_warning: false)
-    if !suppress_warning
-      question = "Reloading '#{component_name}' will discard any changes made to it in the current model.\n\n" +
-                 "Are you sure you want to continue?"
-      result = UI.messagebox(question, MB_YESNO)
-      return unless result == IDYES
-    end
+  def self.reload_single_xref(component_name)
+    question = "Reloading '#{component_name}' will discard any changes made to it in the current model.\n\n" +
+               "Are you sure you want to continue?"
+    result = UI.messagebox(question, MB_YESNO)
+    return unless result == IDYES
 
     self.reload_single_xref_without_warning(component_name)
     self.refresh_dialog_data
@@ -959,15 +952,6 @@ module OpenXrefManager
       
       definition = instance.definition
       return unless OpenXrefManager.is_xref?(definition)
-      
-      # Prevent editing if an update is available.
-      if OpenXrefManager._is_update_available?(definition)
-        UI.start_timer(0.1, false) do
-          UI.messagebox("This XRef has an update available. Please update it from the XRef Manager before editing.")
-          model.close_active if model.active_path # Exit the component edit context
-        end
-        return
-      end
       
       lock_content = OpenXrefManager.get_xref_lock_status(definition)
       is_unlocked = lock_content == "unlocked"

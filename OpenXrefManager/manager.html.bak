@@ -2,7 +2,7 @@
 <html>
 <head>
   <title>Open XRef Manager</title>
-  <link href="modus/modus.min.css" rel="stylesheet">
+    <link href="modus/modus.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
 
   <style>
@@ -65,7 +65,6 @@
 <body>
 
   <div class="list-container">
-    <!-- Flexbox Header -->
     <div class="list-header">
       <div class="col-name px-2">Xref name</div>
       <div class="col-status px-2">Status</div>
@@ -74,31 +73,27 @@
       <div class="col-timestamp px-2">Last Modified</div> 
       <div class="col-actions px-2">Actions</div>
     </div>
-    <!-- List Body (will be populated by JS) -->
     <div id="xref-list-body">
     </div>
   </div>
 
   <div class="footer p-3 bg-light border-top">
-    <div class="d-flex justify-content-between">
-      
-      <button id="purge-button" class="btn btn-outline-secondary">
+    <div class="d-flex justify-content-end">
+      <button id="purge-button" class="btn btn-danger-outline">
         <i class="material-icons">delete_sweep</i> Purge Unused
       </button>
-      
-      <div class="d-flex">
-        <button id="refresh-button" class="btn btn-tertiary ml-2" title="Refresh Status">
-          <i class="material-icons">refresh</i>
-        </button>
-        <button id="publish-all-button" class="btn btn-primary ml-2">
-          <i class="material-icons">publish</i> Save & Publish All
-        </button>
-        <button id="close-button" class="btn btn-tertiary ml-2">Close</button>
-      </div>
-      
+      <button id="refresh-button" class="btn btn-secondary-outline ml-2" title="Refresh Status">
+        <i class="material-icons">refresh</i>
+      </button>
+      <button id="publish-all-button" class="btn btn-primary ml-2">
+        <i class="material-icons">publish</i> Save & Publish All
+      </button>
+      <button id="close-button" class="btn btn-tertiary ml-2">Close</button>
     </div>
   </div>
 
+  <script src="modus/jquery-3.6.0.min.js"></script>
+  <script src="modus/bootstrap.bundle.min.js"></script>
 
   <script>
     const sketchup = window.sketchup;
@@ -135,130 +130,122 @@
         const row = document.createElement('div');
         row.className = 'list-row';
 
+        // Add a click listener to the entire row to select the component in SketchUp.
         row.addEventListener('click', () => {
           if(sketchup) { sketchup.select_component_clicked(xref.name); }
         });
 
+        // Xref Name Column
         const nameCol = document.createElement('div');
         nameCol.className = 'col-name px-2';
         nameCol.textContent = xref.name;
         nameCol.title = xref.name;
         row.appendChild(nameCol);
 
+        // Status Column
         const statusCol = document.createElement('div');
         statusCol.className = 'col-status px-2';
         let bgClass = '';
         let textClass = 'text-white';
         switch(xref.status_key) {
           case 'ok': bgClass = 'bg-success'; break;
-          case 'not_found': textClass = 'text-danger'; break;
+          case 'not_found':
+            bgClass = 'bg-danger';
+            break;
+          case 'update_available':
+            bgClass = 'bg-danger'; 
+            break;
           case 'mine': bgClass = 'bg-primary'; break;
           case 'locked': bgClass = 'bg-secondary'; break;
           case 'mine_elsewhere': bgClass = 'bg-warning'; textClass = 'text-dark'; break;
-          case 'unloaded': bgClass = 'bg-secondary'; break;
-          case 'update_available': bgClass = 'bg-danger'; break;
+          case 'unloaded': bgClass = 'bg-secondary'; break;  
           default: bgClass = 'bg-light'; textClass = 'text-dark';
         }
-
         let titleAttr = '';
-        if (xref.update_available) {
-          let titleText = `File updated at: ${formatTimestamp(xref.file_timestamp)}`;
-          if (xref.is_locked && xref.lock_model) {
-            titleText += `\nLocked in: ${xref.lock_model}`;
-            if (xref.lock_model_path && xref.lock_model_path !== "") {
-               titleText += `\nPath: ${xref.lock_model_path}`;
-            }
-          }
-          titleAttr = `title="${titleText}"`;
-        } else if (xref.status_key == 'locked' || xref.status_key == 'mine_elsewhere') {
+        if ((xref.status_key === 'locked' || xref.status_key === 'mine_elsewhere' || xref.status_key === 'update_available') && xref.lock_model) {
           let titleText = `Locked in: ${xref.lock_model}`;
+          // Add the absolute path if it exists
           if (xref.lock_model_path && xref.lock_model_path !== "") {
-             titleText += `\nModified in file: ${xref.lock_model_path}`;
+             titleText += `\nPath: ${xref.lock_model_path}`;
           }
           titleAttr = `title="${titleText}"`;
         }
         statusCol.innerHTML = `<span class="badge ${bgClass} ${textClass}" ${titleAttr}>${xref.status}</span>`;
         row.appendChild(statusCol);
-
+        
+        // File Path Column
         const pathCol = document.createElement('div');
         pathCol.className = 'col-path px-2 truncate';
         pathCol.textContent = xref.stored_path;
         pathCol.title = xref.path;
         row.appendChild(pathCol);
 
+        // Path Type Column
         const pathTypeCol = document.createElement('div');
         pathTypeCol.className = 'col-pathtype px-2';
         let buttonHTML = '';
         if (xref.path_type === 'relative') {
-            buttonHTML = `<button class="btn btn-secondary btn-sm" title="Change to Absolute Path" onclick="sketchup.toggle_path_type_clicked('${xref.name}')">Relative</button>`;
+            buttonHTML = `<button class="btn btn-secondary-outline btn-sm" title="Change to Absolute Path" onclick="sketchup.toggle_path_type_clicked('${xref.name}')">Relative</button>`;
         } else { // absolute
             if (xref.can_be_relative) {
-                buttonHTML = `<button class="btn btn-secondary btn-sm" title="Change to Relative Path" onclick="sketchup.toggle_path_type_clicked('${xref.name}')">Absolute</button>`;
+                buttonHTML = `<button class="btn btn-secondary-outline btn-sm" title="Change to Relative Path" onclick="sketchup.toggle_path_type_clicked('${xref.name}')">Absolute</button>`;
             } else {
-                buttonHTML = `<button class="btn btn-secondary btn-sm" title="Save the main model to enable relative paths" disabled>Absolute</button>`;
+                buttonHTML = `<button class="btn btn-secondary-outline btn-sm" title="Save the main model to enable relative paths" disabled>Absolute</button>`;
             }
         }
         pathTypeCol.innerHTML = buttonHTML;
         row.appendChild(pathTypeCol);
-
+        // Timestamp Column
         const timestampCol = document.createElement('div');
         timestampCol.className = 'col-timestamp px-2 small text-muted';
         timestampCol.textContent = formatTimestamp(xref.timestamp);
         row.appendChild(timestampCol);
 
+        // Actions Column
         const actionsCol = document.createElement('div');
         actionsCol.className = 'col-actions px-2 action-buttons';
+        // Stop click event from bubbling up to the row, so clicking a button doesn't also select the component.
         actionsCol.addEventListener('click', (event) => {
           event.stopPropagation();
         });
-
-        // Column 1: Lock/Unlock
-        let lockButton = '';
-        if (xref.is_locked) {
-            switch (xref.status_key) {
-                case 'mine':
-                    lockButton = `<button class="btn btn-primary btn-sm" title="Save & Check In" onclick="sketchup.save_and_check_in_clicked('${xref.name}')"><i class="material-icons">lock</i></button>`;
-                    break;
-                case 'mine_elsewhere':
-                    lockButton = `<button class="btn btn-info btn-sm" title="Force Check In" onclick="sketchup.force_check_in_clicked('${xref.name}')"><i class="material-icons">lock</i></button>`;
-                    break;
-                case 'locked':
-                     lockButton = `<button class="btn btn-info btn-sm" title="Force Unlock" onclick="handleForceUnlockClick('${xref.name}')"><i class="material-icons">no_encryption</i></button>`;
-                    break;
-                default:
-                    // This case should ideally not be hit if is_locked is true, but as a fallback:
-                    lockButton = `<button class="btn btn-info btn-sm" disabled><i class="material-icons">lock</i></button>`;
-            }
-        } else {
-            lockButton = `<button class="btn btn-info btn-sm" title="Check Out" onclick="sketchup.check_out_clicked('${xref.name}')"><i class="material-icons">lock_open</i></button>`;
+        actionsCol.innerHTML = '';
+        switch (xref.status_key) {
+          case 'ok':
+          case 'update_available': // <-- MODIFICATION: Also show for 'update_available'
+            actionsCol.innerHTML += `<button class="btn btn-success-outline btn-sm" title="Check Out" onclick="sketchup.check_out_clicked('${xref.name}')"><i class="material-icons">lock_open</i></button>`;
+            break;
+          case 'mine':
+            actionsCol.innerHTML += `<button class="btn btn-info btn-sm" title="Save & Check In" onclick="sketchup.save_and_check_in_clicked('${xref.name}')"><i class="material-icons">lock</i></button>`;
+            break;
+          case 'mine_elsewhere':
+            actionsCol.innerHTML += `<button class="btn btn-warning btn-sm" title="Force Check In" onclick="sketchup.force_check_in_clicked('${xref.name}')"><i class="material-icons">lock</i></button>`;
+            break;
+          case 'locked':
+            actionsCol.innerHTML += `<span class="text-muted small">Locked</span>`;
+            actionsCol.innerHTML += `<button class="btn btn-danger-outline btn-sm" title="Force Unlock" onclick="handleForceUnlockClick('${xref.name}')"><i class="material-icons">no_encryption</i></button>`;
+            break;
         }
-
-
-        // Column 2: Update/Relink
-        let updateButton = '';
-        if (xref.update_available) {
-            updateButton = `<button class="btn btn-danger btn-sm" title="Update File..." onclick="sketchup.reload_single_clicked('${xref.name}', true)"><i class="material-icons">update</i></button>`;
+        
+        // --- MODIFICATION START: Conditional Update/Relink button ---
+        if (xref.is_outdated) {
+          // Show "Update" button
+          actionsCol.innerHTML += `<button class="btn btn-info-outline btn-sm" title="Update XRef from source" onclick="sketchup.reload_single_no_warning_clicked('${xref.name}')"><i class="material-icons">update</i></button>`;
         } else {
-            updateButton = `<button class="btn btn-info btn-sm" title="Replace/Relink File..." onclick="sketchup.relink_clicked('${xref.name}')"><i class="material-icons">link</i></button>`;
+          // Show original "Relink" button
+          actionsCol.innerHTML += `<button class="btn btn-warning-outline btn-sm" title="Replace/Relink File..." onclick="sketchup.relink_clicked('${xref.name}')"><i class="material-icons">link</i></button>`;
         }
+        // --- MODIFICATION END ---
 
-
-        // Column 3: Load/Unload
-        let loadButton = '';
         if (xref.found) {
           if (xref.is_unloaded) {
-            loadButton = `<button class="btn btn-sm" title="Load XRef" onclick="sketchup.reload_single_clicked('${xref.name}')"><i class="material-icons">sync</i></button>`;
+            // Show LOAD button
+            actionsCol.innerHTML += `<button class="btn btn-success-outline btn-sm" title="Load XRef" onclick="sketchup.reload_single_clicked('${xref.name}')"><i class="material-icons">sync</i></button>`;
           } else {
-            loadButton = `<button class="btn btn-sm" title="Unload XRef" onclick="handleUnloadClick('${xref.name}')"><i class="material-icons">visibility_off</i></button>`;
+            // Show UNLOAD button
+            actionsCol.innerHTML += `<button class="btn btn-secondary-outline btn-sm" title="Unload XRef" onclick="handleUnloadClick('${xref.name}')"><i class="material-icons">visibility_off</i></button>`;
           }
-        } else {
-            loadButton = `<button class="btn btn-sm" disabled><i class="material-icons">sync_disabled</i></button>`;
         }
-
-        // Column 4: Unlink
-        const unlinkButton = `<button class="btn btn-info btn-sm" title="Unlink" onclick="handleUnlinkClick('${xref.name}')"><i class="material-icons">link_off</i></button>`;
-
-        actionsCol.innerHTML = lockButton + updateButton + loadButton + unlinkButton;
+        actionsCol.innerHTML += `<button class="btn btn-danger-outline btn-sm" title="Unlink" onclick="handleUnlinkClick('${xref.name}')"><i class="material-icons">link_off</i></button>`;
         row.appendChild(actionsCol);
 
         listBody.appendChild(row);
