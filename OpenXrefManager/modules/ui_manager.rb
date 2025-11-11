@@ -46,6 +46,9 @@ module OpenXrefManager
       something_changed = false
 
       Core.get_xref_definitions.each do |definition|
+        # Skip invalid definitions (can happen during reload operations)
+        next unless definition && definition.valid?
+
         update_available = FileOperations.is_update_available?(definition)
         something_changed = true if update_available
 
@@ -91,13 +94,18 @@ module OpenXrefManager
       return [].to_json unless model && model.valid?
       current_guid = model.guid
 
-      data = Core.get_xref_definitions.map do |definition|
+      data = Core.get_xref_definitions.select { |d| d && d.valid? }.map do |definition|
         absolute_path = FileOperations.resolve_xref_path(definition)
         stored_path = definition.get_attribute(Core::XREF_DICT_NAME, Core::XREF_PATH_KEY)
         file_found = absolute_path && File.exist?(absolute_path)
         path_type = definition.get_attribute(Core::XREF_DICT_NAME, Core::XREF_PATH_TYPE_KEY) || "absolute"
         can_be_relative = model.path && !model.path.empty?
         is_unloaded = definition.get_attribute(Core::XREF_DICT_NAME, Core::XREF_UNLOADED_KEY) == true
+
+        # Get format information
+        format = Core.get_xref_format(definition)
+        format_name = Core.get_format_name(definition)
+        is_editable = Core.is_editable_format?(definition)
 
         lock_content = FileOperations.get_xref_lock_status(definition)
         is_locked = lock_content != "unlocked"
@@ -155,7 +163,10 @@ module OpenXrefManager
           is_unloaded: is_unloaded,
           timestamp: stored_timestamp,
           file_timestamp: file_timestamp,
-          update_available: update_available
+          update_available: update_available,
+          format: format,
+          format_name: format_name,
+          is_editable: is_editable
         }
       end
       return data.to_json

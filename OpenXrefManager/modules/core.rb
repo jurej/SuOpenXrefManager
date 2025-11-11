@@ -25,7 +25,15 @@ module OpenXrefManager
     XREF_PATH_TYPE_KEY = "path_type" # "absolute" or "relative"
     XREF_UNLOADED_KEY = "is_unloaded" # true or false
     XREF_TIMESTAMP_KEY = "timestamp"
+    XREF_FORMAT_KEY = "format" # "skp", "dwg", "dxf", etc.
     TIMER_INTERVAL = 5 # Seconds between background checks
+
+    # Supported XRef file formats
+    SUPPORTED_FORMATS = {
+      "skp" => { name: "SketchUp", ext: ".skp", editable: true },
+      "dwg" => { name: "AutoCAD DWG", ext: ".dwg", editable: false },
+      "dxf" => { name: "AutoCAD DXF", ext: ".dxf", editable: false }
+    }.freeze
 
     # Messagebox Result Constants
     MB_YESNO = 4
@@ -131,6 +139,30 @@ module OpenXrefManager
       defaults = [@user_name]
       input = UI.inputbox(prompts, defaults, "Set XRef User Name")
       @user_name = input[0].strip if input && input[0]
+    end
+
+    # --- Format Helper Methods ---
+
+    # Gets the file format for an XRef definition.
+    # Returns "skp" by default for backward compatibility with existing XRefs.
+    def self.get_xref_format(definition)
+      return nil unless definition && definition.valid?
+      format = definition.get_attribute(XREF_DICT_NAME, XREF_FORMAT_KEY)
+      format || "skp" # Default to skp for backward compatibility
+    end
+
+    # Checks if an XRef format can be edited within SketchUp.
+    def self.is_editable_format?(definition)
+      format = get_xref_format(definition)
+      return false unless format && SUPPORTED_FORMATS[format]
+      SUPPORTED_FORMATS[format][:editable]
+    end
+
+    # Gets the display name for an XRef format.
+    def self.get_format_name(definition)
+      format = get_xref_format(definition)
+      return "Unknown" unless format && SUPPORTED_FORMATS[format]
+      SUPPORTED_FORMATS[format][:name]
     end
 
   end

@@ -17,6 +17,22 @@
 module OpenXrefManager
   module FileOperations
 
+    # --- Format Detection ---
+
+    # Detects the file format from a file path based on extension.
+    def self.detect_format_from_path(file_path)
+      return nil unless file_path
+      ext = File.extname(file_path).downcase
+      case ext
+      when ".skp" then "skp"
+      when ".dwg" then "dwg"
+      when ".dxf" then "dxf"
+      else nil
+      end
+    end
+
+    # --- Path Resolution ---
+
     # Resolves the full, absolute path for an XRef definition, accounting for relative paths.
     def self.resolve_xref_path(definition)
       model = definition.model
@@ -92,6 +108,13 @@ module OpenXrefManager
         definition.set_attribute(Core::XREF_DICT_NAME, Core::XREF_PATH_KEY, absolute_path)
         definition.set_attribute(Core::XREF_DICT_NAME, Core::XREF_PATH_TYPE_KEY, "absolute")
       end
+
+      # Auto-detect and set the format based on file extension
+      format = detect_format_from_path(absolute_path)
+      if format
+        definition.set_attribute(Core::XREF_DICT_NAME, Core::XREF_FORMAT_KEY, format)
+      end
+
       Core.update_xref_timestamp(definition)
     end
 

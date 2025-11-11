@@ -100,6 +100,7 @@ module OpenXrefManager
     end
 
     # Saves and checks in all XRefs currently checked out by the user in this model.
+    # Only processes editable formats (SKP). Non-editable formats (DWG/DXF) are skipped.
     def self.save_and_check_in_all_my_xrefs
       model = Sketchup.active_model
       current_guid = model.guid
@@ -116,21 +117,37 @@ module OpenXrefManager
         return
       end
 
+      # Filter to only editable formats (SKP)
+      editable_xrefs = my_xrefs.select { |definition| Core.is_editable_format?(definition) }
+      skipped_count = my_xrefs.length - editable_xrefs.length
+
+      if editable_xrefs.empty?
+        UI.messagebox("You have #{my_xrefs.length} XRef(s) checked out, but none are editable from SketchUp.\n\n" +
+                      "Edit non-SKP files in their native applications, then reload the XRefs.")
+        return
+      end
+
       model.start_operation("Save & Check In All My XRefs", true)
 
       # Check if we are currently editing any of the XRefs being checked in.
       was_editing_an_xref = false
       if model.active_path
         was_editing_an_xref = model.active_path.any? do |instance|
-          my_xrefs.include?(instance.definition)
+          editable_xrefs.include?(instance.definition)
         end
       end
 
-      my_xrefs.each do |definition|
+      editable_xrefs.each do |definition|
         self.silent_save_and_check_in(definition)
       end
       model.close_active if was_editing_an_xref
       model.commit_operation
+
+      # Notify user if some were skipped
+      if skipped_count > 0
+        UI.messagebox("Checked in #{editable_xrefs.length} SKP XRef(s).\n\n" +
+                      "Skipped #{skipped_count} non-editable XRef(s) (DWG/DXF).")
+      end
     end
 
     # Saves and checks in a single XRef.
@@ -138,6 +155,15 @@ module OpenXrefManager
       model = Sketchup.active_model
       definition = model.definitions.find { |d| d.name == component_name }
       return unless definition
+
+      # Check if format is editable from SketchUp
+      unless Core.is_editable_format?(definition)
+        format_name = Core.get_format_name(definition)
+        UI.messagebox("Cannot check in #{format_name} files from SketchUp.\n\n" +
+                      "Edit the file in its native application (e.g., AutoCAD),\n" +
+                      "then reload the XRef to see changes.")
+        return
+      end
 
       lock_content = FileOperations.get_xref_lock_status(definition)
       lock_owner_name, lock_owner_guid = lock_content.split('|')
@@ -158,6 +184,15 @@ module OpenXrefManager
       model = Sketchup.active_model
       definition = model.definitions.find { |d| d.name == component_name }
       return unless definition
+
+      # Check if format is editable from SketchUp
+      unless Core.is_editable_format?(definition)
+        format_name = Core.get_format_name(definition)
+        UI.messagebox("Cannot check in #{format_name} files from SketchUp.\n\n" +
+                      "Edit the file in its native application (e.g., AutoCAD),\n" +
+                      "then reload the XRef to see changes.")
+        return
+      end
 
       lock_content = FileOperations.get_xref_lock_status(definition)
       lock_owner_name, _ = lock_content.split('|')
@@ -208,36 +243,57 @@ module OpenXrefManager
       end
     end
 
-    # Imports a .skp file as a new XRef and places it for the user to position.
+    # Imports a file as a new XRef and places it for the user to position.
+    # Supports SKP, DWG, and DXF formats.
     def self.import_as_xref
       model = Sketchup.active_model
-      path = UI.openpanel("Import XRef file", "", "*.skp")
+      path = UI.openpanel("Import XRef file", "", "Supported Files|*.skp;*.dwg;*.dxf||")
       return unless path
+
+      format = FileOperations.detect_format_from_path(path)
+      unless format
+        UI.messagebox("Unsupported file format. Please select a .skp, .dwg, or .dxf file.")
+        return
+      end
 
       model.start_operation("Import as XRef", true)
       begin
-        new_definition = model.definitions.load(path)
-        FileOperations.set_xref_path(new_definition, path, ask_user: true)
-        model.place_component(new_definition, true)
+        if format == "skp"
+          import_skp_xref(path, place: true)
+        else
+          import_cad_xref(path, format, place: true)
+        end
       rescue => e
         UI.messagebox("Failed to import XRef.\nError: #{e.message}")
+        model.abort_operation
       ensure
         model.commit_operation
       end
     end
 
-    # Imports a .skp file as a new XRef at the model origin.
+    # Imports a file as a new XRef at the model origin.
+    # Supports SKP, DWG, and DXF formats.
     def self.import_as_xref_at_origin
       model = Sketchup.active_model
-      path = UI.openpanel("Import XRef at Origin", "", "*.skp")
+      path = UI.openpanel("Import XRef at Origin", "", "Supported Files|*.skp;*.dwg;*.dxf||")
       return unless path
+
+      format = FileOperations.detect_format_from_path(path)
+      unless format
+        UI.messagebox("Unsupported file format. Please select a .skp, .dwg, or .dxf file.")
+        return
+      end
+
       model.start_operation("Import XRef at Origin", true)
       begin
-        new_definition = model.definitions.load(path)
-        FileOperations.set_xref_path(new_definition, path, ask_user: true)
-        model.entities.add_instance(new_definition, Geom::Transformation.new)
+        if format == "skp"
+          import_skp_xref(path, place: false)
+        else
+          import_cad_xref(path, format, place: false)
+        end
       rescue => e
         UI.messagebox("Failed to import XRef.\nError: #{e.message}")
+        model.abort_operation
       ensure
         model.commit_operation
       end
@@ -427,8 +483,23 @@ module OpenXrefManager
         return false
       end
 
+      format = Core.get_xref_format(original_definition)
+
       model.start_operation("Reload XRef: #{component_name}", true)
 
+      success = if format == "skp"
+        reload_skp_xref(original_definition, path, suppress_errors)
+      else
+        reload_cad_xref(original_definition, path, format, suppress_errors)
+      end
+
+      model.commit_operation
+      success
+    end
+
+    # Reloads a SKP XRef (existing logic extracted into separate method).
+    def self.reload_skp_xref(original_definition, path, suppress_errors)
+      model = Sketchup.active_model
       success = false
       begin
         reloaded_definition = model.definitions.load(path)
@@ -458,6 +529,10 @@ module OpenXrefManager
           # no longer tracked and can be purged.
           original_definition.attribute_dictionaries.delete(Core::XREF_DICT_NAME)
 
+          # Clean up cache entry for the old definition before it's deleted
+          old_guid = original_definition.guid
+          Core.last_xref_statuses.delete(old_guid)
+
           original_name = original_definition.name
 
           model.definitions.purge_unused
@@ -481,13 +556,199 @@ module OpenXrefManager
         success = !reloaded_definition.nil?
 
       rescue => e
-        UI.messagebox("Failed to reload #{component_name}.\nError: #{e.message}") unless suppress_errors
+        UI.messagebox("Failed to reload XRef.\nError: #{e.message}") unless suppress_errors
         success = false
-      ensure
-        model.commit_operation
       end
 
       return success
+    end
+
+    # Reloads a CAD (DWG/DXF) XRef by importing fresh and swapping contents.
+    # CAD files are imported as nested geometry within the component definition.
+    def self.reload_cad_xref(original_definition, path, format, suppress_errors)
+      model = Sketchup.active_model
+      success = false
+      temp_instance = nil
+      temp_definition = nil
+
+      begin
+        # Validate original_definition is still valid
+        unless original_definition && original_definition.valid?
+          raise "Original XRef definition is invalid before reload"
+        end
+
+        # CRITICAL: Check if definition has instances
+        # If it has no instances, it may be auto-purged by SketchUp
+        if original_definition.instances.empty?
+          raise "Cannot reload XRef: definition has no instances in the model. Please re-import the XRef instead."
+        end
+
+        # Store the original name before any operations
+        original_name = original_definition.name
+
+        # STEP 1: Import the CAD file FIRST (don't touch original_definition yet)
+        # This avoids race conditions where import triggers cleanup
+        entities_before = model.entities.to_a.dup
+        status = model.import(path, false)  # false = no summary dialog
+
+        unless status
+          raise "Failed to import #{format.upcase} file"
+        end
+
+        # Find newly imported entities by comparing before/after
+        entities_after = model.entities.to_a
+        new_entities = entities_after - entities_before
+
+        if new_entities.empty?
+          raise "No entities were imported from #{format.upcase} file"
+        end
+
+        # Validate entities before grouping
+        valid_entities = new_entities.select { |e| e && e.valid? }
+        if valid_entities.empty?
+          raise "Imported entities are invalid"
+        end
+
+        # STEP 2: Group and convert imported entities to component
+        temp_group = model.entities.add_group(valid_entities)
+        unless temp_group && temp_group.valid?
+          raise "Failed to create group for imported entities"
+        end
+
+        temp_instance = temp_group.to_component
+        unless temp_instance && temp_instance.valid?
+          raise "Failed to convert group to component"
+        end
+
+        temp_definition = temp_instance.definition
+        unless temp_definition && temp_definition.valid?
+          raise "Failed to get definition from temp component"
+        end
+
+        # Give temp definition a unique name
+        geometry_def_name = "#{original_name}_geometry"
+        temp_definition.name = geometry_def_name
+
+        # STEP 3: Now that import is complete, verify original_definition still valid
+        unless original_definition && original_definition.valid?
+          raise "Original XRef definition became invalid during import (may have been auto-purged)"
+        end
+
+        # STEP 4: Find and remove old nested geometry definition
+        nested_geometry_name = "#{original_name}_geometry"
+        old_nested_defs = model.definitions.select { |d| d.name.start_with?(nested_geometry_name) && d != temp_definition }
+
+        # STEP 5: Clear entities from original definition
+        original_definition.entities.clear!
+
+        # STEP 6: Clean up old nested definitions now that their instances are gone
+        old_nested_defs.each do |old_def|
+          if old_def.valid? && old_def.instances.empty?
+            begin
+              model.definitions.remove(old_def)
+            rescue => purge_error
+              puts "Warning: Could not purge old nested definition: #{purge_error.message}"
+            end
+          end
+        end
+
+        # STEP 7: Verify original_definition STILL valid after clearing
+        unless original_definition && original_definition.valid?
+          raise "Original XRef definition became invalid after clearing entities"
+        end
+
+        # STEP 8: Add the temp definition as nested instance in original definition
+        nested_instance = original_definition.entities.add_instance(temp_definition, Geom::Transformation.new)
+        unless nested_instance && nested_instance.valid?
+          raise "Failed to create nested instance in XRef definition"
+        end
+
+        # STEP 9: Now safe to remove temp instance from model (definition has another instance)
+        if temp_instance && temp_instance.valid?
+          temp_instance.erase!
+        end
+
+        # STEP 10: Update metadata
+        original_definition.set_attribute(Core::XREF_DICT_NAME, Core::XREF_UNLOADED_KEY, false)
+        Core.update_xref_timestamp(original_definition)
+
+        success = true
+
+      rescue => e
+        # Clean up temp entities if operation failed
+        begin
+          if temp_instance && temp_instance.valid?
+            temp_instance.erase!
+          end
+          if temp_definition && temp_definition.valid? && temp_definition.instances.empty?
+            model.definitions.remove(temp_definition)
+          end
+        rescue => cleanup_error
+          puts "Warning: Cleanup failed: #{cleanup_error.message}"
+        end
+
+        error_msg = "Failed to reload CAD XRef.\nError: #{e.message}\n\nDetails:\n#{e.class}\n#{e.backtrace.first(3).join("\n")}"
+        UI.messagebox(error_msg) unless suppress_errors
+        puts "OpenXrefManager CAD reload error: #{e.message}"
+        puts e.backtrace.first(5).join("\n")
+        success = false
+      end
+
+      return success
+    end
+
+    # --- Format-Specific Import Helpers ---
+
+    # Imports a SKP file as an XRef.
+    # If place=true, uses interactive placement. Otherwise places at origin.
+    def self.import_skp_xref(path, place: true)
+      model = Sketchup.active_model
+      new_definition = model.definitions.load(path)
+      FileOperations.set_xref_path(new_definition, path, ask_user: true)
+
+      if place
+        model.place_component(new_definition, true)
+      else
+        model.entities.add_instance(new_definition, Geom::Transformation.new)
+      end
+    end
+
+    # Imports a CAD file (DWG/DXF) as an XRef by wrapping imported entities in a component.
+    # If place=true, imports interactively. Otherwise imports at origin.
+    def self.import_cad_xref(path, format, place: true)
+      model = Sketchup.active_model
+      component_name = File.basename(path, ".*")
+
+      # Track entities before import
+      entities_before = model.entities.to_a.dup
+
+      # Import the CAD file
+      # For DWG/DXF, SketchUp's import creates entities directly in the model
+      status = model.import(path, false)  # false = no summary dialog
+
+      unless status
+        raise "Failed to import #{format.upcase} file"
+      end
+
+      # Find newly imported entities by comparing before/after
+      entities_after = model.entities.to_a
+      new_entities = entities_after - entities_before
+
+      if new_entities.empty?
+        raise "No entities were imported from #{format.upcase} file"
+      end
+
+      # Wrap imported entities in a group, then convert to component
+      temp_group = model.entities.add_group(new_entities)
+      instance = temp_group.to_component
+      definition = instance.definition
+      definition.name = component_name
+
+      # Mark as XRef with format
+      FileOperations.set_xref_path(definition, path, ask_user: true)
+
+      # Note: The instance is already placed where the import occurred (origin or interactive)
+      # The 'place' parameter is handled by the import dialog itself
     end
 
   end

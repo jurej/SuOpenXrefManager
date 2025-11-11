@@ -53,11 +53,12 @@
       cursor: pointer;
     }
     /* Flexbox Column Widths */
-    .col-name { flex: 1 1 30%; min-width: 100px; max-width: 300px; }
+    .col-name { flex: 1 1 25%; min-width: 100px; max-width: 250px; }
     .col-status { flex: 0 0 140px; }
-    .col-path { flex: 1 1 30%; min-width: 150px; }
-    .col-pathtype { flex: 0 0 120px; text-align: center; }
-    .col-timestamp { flex: 0 0 140px; }
+    .col-format { flex: 0 0 90px; text-align: center; }
+    .col-path { flex: 1 1 25%; min-width: 150px; }
+    .col-pathtype { flex: 0 0 100px; text-align: center; }
+    .col-timestamp { flex: 0 0 130px; }
     .col-actions { flex: 0 0 160px; }
   </style>
 
@@ -69,9 +70,10 @@
     <div class="list-header">
       <div class="col-name px-2">Xref name</div>
       <div class="col-status px-2">Status</div>
+      <div class="col-format px-2">Format</div>
       <div class="col-path px-2">File Path</div>
       <div class="col-pathtype px-2">Path Type</div>
-      <div class="col-timestamp px-2">Last Modified</div> 
+      <div class="col-timestamp px-2">Last Modified</div>
       <div class="col-actions px-2">Actions</div>
     </div>
     <!-- List Body (will be populated by JS) -->
@@ -180,6 +182,18 @@
         statusCol.innerHTML = `<span class="badge ${bgClass} ${textClass}" ${titleAttr}>${xref.status}</span>`;
         row.appendChild(statusCol);
 
+        const formatCol = document.createElement('div');
+        formatCol.className = 'col-format px-2';
+        let formatBadgeClass = 'badge-secondary';
+        if (xref.format === 'skp') {
+          formatBadgeClass = 'badge-success';
+        } else if (xref.format === 'dwg' || xref.format === 'dxf') {
+          formatBadgeClass = 'badge-info';
+        }
+        formatCol.innerHTML = `<span class="badge ${formatBadgeClass}">${xref.format.toUpperCase()}</span>`;
+        formatCol.title = xref.format_name;
+        row.appendChild(formatCol);
+
         const pathCol = document.createElement('div');
         pathCol.className = 'col-path px-2 truncate';
         pathCol.textContent = xref.stored_path;
@@ -217,10 +231,20 @@
         if (xref.is_locked) {
             switch (xref.status_key) {
                 case 'mine':
-                    lockButton = `<button class="btn btn-primary btn-sm" title="Save & Check In" onclick="sketchup.save_and_check_in_clicked('${xref.name}')"><i class="material-icons">lock</i></button>`;
+                    // For non-editable formats, show disabled button with tooltip
+                    if (!xref.is_editable) {
+                        lockButton = `<button class="btn btn-secondary btn-sm" title="Edit in ${xref.format_name}, then reload" disabled><i class="material-icons">lock</i></button>`;
+                    } else {
+                        lockButton = `<button class="btn btn-primary btn-sm" title="Save & Check In" onclick="sketchup.save_and_check_in_clicked('${xref.name}')"><i class="material-icons">lock</i></button>`;
+                    }
                     break;
                 case 'mine_elsewhere':
-                    lockButton = `<button class="btn btn-info btn-sm" title="Force Check In" onclick="sketchup.force_check_in_clicked('${xref.name}')"><i class="material-icons">lock</i></button>`;
+                    // For non-editable formats, show disabled button
+                    if (!xref.is_editable) {
+                        lockButton = `<button class="btn btn-secondary btn-sm" title="Edit in ${xref.format_name}, then reload" disabled><i class="material-icons">lock</i></button>`;
+                    } else {
+                        lockButton = `<button class="btn btn-info btn-sm" title="Force Check In" onclick="sketchup.force_check_in_clicked('${xref.name}')"><i class="material-icons">lock</i></button>`;
+                    }
                     break;
                 case 'locked':
                      lockButton = `<button class="btn btn-info btn-sm" title="Force Unlock" onclick="handleForceUnlockClick('${xref.name}')"><i class="material-icons">no_encryption</i></button>`;
