@@ -270,7 +270,12 @@
                     lockButton = `<button class="btn btn-info btn-sm" disabled><i class="material-icons">lock</i></button>`;
             }
         } else {
-            lockButton = `<button class="btn btn-info btn-sm" title="Check Out" onclick="sketchup.check_out_clicked('${xref.name}')"><i class="material-icons">lock_open</i></button>`;
+            // For non-editable formats, disable checkout button
+            if (!xref.is_editable) {
+                lockButton = `<button class="btn btn-secondary btn-sm" title="Read-only: Edit in ${xref.format_name}, then reload" disabled><i class="material-icons">lock_open</i></button>`;
+            } else {
+                lockButton = `<button class="btn btn-info btn-sm" title="Check Out" onclick="sketchup.check_out_clicked('${xref.name}')"><i class="material-icons">lock_open</i></button>`;
+            }
         }
 
 

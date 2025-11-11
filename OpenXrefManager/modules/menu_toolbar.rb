@@ -1,5 +1,5 @@
 # v1.3.2
-# Copyright (c) 2025 Your Name or Company Name
+# Copyright (c) 2025 Jure Judez and Sebastian Barthmes
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -86,16 +86,24 @@ module OpenXrefManager
               UIManager.refresh_dialog_data
             end
 
+            # Check if format is editable before showing checkout/checkin options
+            is_editable = Core.is_editable_format?(definition)
             lock_content = FileOperations.get_xref_lock_status(definition)
             is_locked = lock_content != "unlocked"
 
             if is_locked
               lock_owner_name, lock_owner_guid = lock_content.split('|')
               if lock_owner_name == Core.user_name && lock_owner_guid == model.guid
-                submenu.add_item("Save & Check In XRef") do
-                  XrefOperations.save_and_check_in_xref(definition.name)
-                  UIManager.check_for_status_changes(show_notification: false)
-                  UIManager.refresh_dialog_data
+                if is_editable
+                  submenu.add_item("Save & Check In XRef") do
+                    XrefOperations.save_and_check_in_xref(definition.name)
+                    UIManager.check_for_status_changes(show_notification: false)
+                    UIManager.refresh_dialog_data
+                  end
+                else
+                  cmd_readonly = UI::Command.new("Read-only XRef (Edit externally)") { }
+                  cmd_readonly.set_validation_proc { MF_GRAYED }
+                  submenu.add_item(cmd_readonly)
                 end
               else
                 cmd_locked = UI::Command.new("Locked by #{lock_owner_name}") { }
@@ -103,10 +111,17 @@ module OpenXrefManager
                 submenu.add_item(cmd_locked)
               end
             else
-              submenu.add_item("Check Out XRef") do
-                XrefOperations.check_out_xref(definition.name)
-                UIManager.check_for_status_changes(show_notification: false)
-                UIManager.refresh_dialog_data
+              if is_editable
+                submenu.add_item("Check Out XRef") do
+                  XrefOperations.check_out_xref(definition.name)
+                  UIManager.check_for_status_changes(show_notification: false)
+                  UIManager.refresh_dialog_data
+                end
+              else
+                format_name = Core.get_format_name(definition)
+                cmd_readonly = UI::Command.new("Read-only #{format_name}") { }
+                cmd_readonly.set_validation_proc { MF_GRAYED }
+                submenu.add_item(cmd_readonly)
               end
             end
 

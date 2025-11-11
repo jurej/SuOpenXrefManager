@@ -1,5 +1,5 @@
 # v1.3.2
-# Copyright (c) 2025 Your Name or Company Name
+# Copyright (c) 2025 Jure Judez and Sebastian Barthmes
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -58,6 +58,16 @@ module OpenXrefManager
       model = Sketchup.active_model
       definition = model.definitions.find { |d| d.name == component_name }
       return unless definition
+
+      # Check if format is editable from SketchUp
+      unless Core.is_editable_format?(definition)
+        format_name = Core.get_format_name(definition)
+        UI.messagebox("Cannot check out #{format_name} files from SketchUp.\n\n" +
+                      "#{format_name} files are read-only XRefs.\n" +
+                      "Edit them in their native application, then reload the XRef.")
+        return
+      end
+
       path = FileOperations.resolve_xref_path(definition)
       return unless path
       lock_path = path + ".lock"

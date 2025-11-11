@@ -1,5 +1,5 @@
 # v1.3.2
-# Copyright (c) 2025 Your Name or Company Name
+# Copyright (c) 2025 Jure Judez and Sebastian Barthmes
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -52,6 +52,19 @@ module OpenXrefManager
         definition = instance.definition
         return unless Core.is_xref?(definition)
 
+        # Prevent editing non-editable formats (DWG/DXF)
+        unless Core.is_editable_format?(definition)
+          format_name = Core.get_format_name(definition)
+          UI.start_timer(0.1, false) do
+            UI.messagebox("Cannot edit #{format_name} XRefs in SketchUp.\n\n" +
+                          "#{format_name} files are read-only.\n\n" +
+                          "Edit the file in its native application (e.g., AutoCAD),\n" +
+                          "then reload the XRef to see changes.")
+            model.close_active if model.active_path # Exit the component edit context
+          end
+          return
+        end
+
         # Prevent editing if an update is available.
         if FileOperations.is_update_available?(definition)
           UI.start_timer(0.1, false) do
@@ -92,6 +105,15 @@ module OpenXrefManager
       def onBeforeComponentSaveAs(instance)
         definition = instance.definition
         return true unless Core.is_xref?(definition)
+
+        # Prevent Save As for non-editable formats (DWG/DXF)
+        unless Core.is_editable_format?(definition)
+          format_name = Core.get_format_name(definition)
+          UI.messagebox("Cannot save #{format_name} XRefs from SketchUp.\n\n" +
+                        "#{format_name} files must be edited in their native application.\n\n" +
+                        "Edit the file externally, then reload the XRef.")
+          return false # Prevent the save operation.
+        end
 
         question = "Warning: You are using SketchUp's native 'Save As' on a linked XRef ('#{definition.name}').\n\n" +
                    "This will create a new, separate component file. The XRef link will be updated to point to the new file.\n\n" +
