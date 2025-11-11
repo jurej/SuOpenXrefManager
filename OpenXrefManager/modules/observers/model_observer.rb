@@ -1,4 +1,4 @@
-# v1.3.2
+# v1.3.4
 # Copyright (c) 2025 Jure Judez and Sebastian Barthmes
 #
 # This program is free software; you can redistribute it and/or modify
@@ -22,15 +22,32 @@ module OpenXrefManager
       def initialize
         @definition_to_relink = nil
         @guid_before_save = Sketchup.active_model.guid
+        @operation_aborted = false
       end
 
       # Re-check status after an undo operation.
       def onTransactionUndo(model)
+        # If a save was aborted, don't run subsequent observers
+        if @operation_aborted
+          @operation_aborted = false # Reset flag
+          return
+        end
         UI.start_timer(0.1, false) { UIManager.check_for_status_changes(show_notification: false) }
       end
 
       # Add an observer for when the model is saved.
       def onSaveModel(model)
+        # This is called when user saves *before* a File > New or File > Open.
+        # We check for uncommitted XRefs here.
+        if Core.has_uncommitted_changes?
+          unless Core.confirm_close_with_uncommitted_changes?("save the main model")
+            # Returning false aborts the save operation.
+            @operation_aborted = true
+            return false
+          end
+        end
+        @operation_aborted = false # Reset flag
+
         new_guid = model.guid
         # If the GUID changed after saving,
         # find all lock files owned by this user from the previous session state and update them.
@@ -41,6 +58,7 @@ module OpenXrefManager
 
         # Run a status check after a save to refresh the UI.
         UI.start_timer(0.1, false) { UIManager.check_for_status_changes(show_notification: false) }
+        return true # Explicitly allow save
       end
 
       # Handles auto-checkout when a user starts editing an XRef.

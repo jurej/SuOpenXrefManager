@@ -1,4 +1,4 @@
-# v1.3.2
+# v1.3.4
 # Copyright (c) 2025 Jure Judez and Sebastian Barthmes
 #
 # This program is free software; you can redistribute it and/or modify

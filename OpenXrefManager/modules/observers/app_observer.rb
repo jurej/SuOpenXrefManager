@@ -1,4 +1,4 @@
-# v1.3.2
+# v1.3.4
 # Copyright (c) 2025 Jure Judez and Sebastian Barthmes
 #
 # This program is free software; you can redistribute it and/or modify
@@ -32,10 +32,49 @@ module OpenXrefManager
       def onOpenModel(model)
         attach_observers(model)
         UIManager.refresh_dialog_data
+        UI.start_timer(0, false) do
+          check_xrefs_and_show_manager
+        end
       end
 
       def onQuit()
         UIManager.stop_timer
+      end
+
+      # Check statuses and show dialog if any XRefs need attention.
+      def check_xrefs_and_show_manager
+        # Make sure model is valid
+        model = Sketchup.active_model
+        return unless model && model.valid?
+
+        # We can leverage the get_xref_data_as_json method to get statuses,
+        # but we need to parse the JSON it returns.
+        json_data = UIManager.get_xref_data_as_json
+
+        # Avoid parsing if it's an empty list
+        return if json_data == "[]"
+
+        require 'json' # Make sure JSON is available
+        begin
+          xref_data = JSON.parse(json_data)
+        rescue JSON::ParserError => e
+          puts "OpenXrefManager: Error parsing XRef data on open: #{e.message}"
+          return
+        end
+
+        # Check if any XRef has a status_key other than "ok" (which is "Available")
+        needs_attention = xref_data.any? do |xref|
+          xref['status_key'] != 'ok'
+        end
+
+        if needs_attention
+          # Don't show if it's already visible
+          if Core.dialog.nil? || !Core.dialog.visible?
+            UIManager.show_manager_dialog
+          else
+            Core.dialog.bring_to_front
+          end
+        end
       end
 
       # Attaches model and entities observers to a given model.

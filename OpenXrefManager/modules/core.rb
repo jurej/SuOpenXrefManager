@@ -1,4 +1,4 @@
-# v1.3.2
+# v1.3.4
 # Copyright (c) 2025 Jure Judez and Sebastian Barthmes
 #
 # This program is free software; you can redistribute it and/or modify
@@ -163,6 +163,38 @@ module OpenXrefManager
       format = get_xref_format(definition)
       return "Unknown" unless format && SUPPORTED_FORMATS[format]
       SUPPORTED_FORMATS[format][:name]
+    end
+
+    # --- Uncommitted Changes Detection ---
+
+    # Helper method to check if the user has any XRefs checked out.
+    def self.has_uncommitted_changes?
+      model = Sketchup.active_model
+      return false unless model && model.valid?
+      current_guid = model.guid
+
+      my_xrefs = get_xref_definitions.select do |definition|
+        lock_content = FileOperations.get_xref_lock_status(definition)
+        next false if lock_content == "unlocked"
+        lock_owner_name, lock_owner_guid = lock_content.split('|')
+        # Check for XRefs locked by this user in THIS window
+        lock_owner_name == @user_name && lock_owner_guid == current_guid
+      end
+
+      return !my_xrefs.empty?
+    end
+
+    # Helper method to show a confirmation dialog.
+    # Returns true if the user wants to continue (lose changes), false otherwise.
+    def self.confirm_close_with_uncommitted_changes?(action_text = "continue")
+      return true unless has_uncommitted_changes?
+
+      question = "You have XRefs checked out with uncommitted changes.\n\n" +
+                 "If you #{action_text}, these changes will be lost.\n\n" +
+                 "Do you want to continue?"
+      result = UI.messagebox(question, MB_YESNO)
+
+      return result == IDYES # Continue if 'Yes', cancel if 'No'
     end
 
   end

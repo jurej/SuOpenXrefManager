@@ -1,1 +1,13 @@
+# Windows
+desktop.ini
+Thumbs.db
+
+# excluded dev files
 /create_symlinks.cmd
+
+# macOS
+.DS_Store
+
+# IDE/Editor
+.vscode/
+.idea/
