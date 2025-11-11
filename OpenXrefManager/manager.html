@@ -39,42 +39,58 @@
       text-overflow: ellipsis;
     }
     .list-header, .list-row {
-      display: flex;
+      display: grid;
+      grid-template-columns:
+        minmax(100px, 1fr)  /* name */
+        140px                /* status */
+        90px                 /* format */
+        minmax(150px, 1fr)  /* path */
+        100px                /* pathtype */
+        130px                /* timestamp */
+        170px;               /* actions */
+      gap: 0;
       align-items: center;
       border-bottom: 1px solid #dee2e6;
-      padding-top: 0.5rem;
-      padding-bottom: 0.5rem;
+      padding: 0.5rem 0;
     }
     .list-header {
       font-weight: 600;
+    }
+    .list-header > div, .list-row > div {
+      padding-left: 0.5rem;
+      padding-right: 0.5rem;
+      box-sizing: border-box;
     }
     .list-row:hover {
       background-color: #f0f2f5;
       cursor: pointer;
     }
-    /* Flexbox Column Widths */
-    .col-name { flex: 1 1 25%; min-width: 100px; max-width: 250px; }
-    .col-status { flex: 0 0 140px; }
-    .col-format { flex: 0 0 90px; text-align: center; }
-    .col-path { flex: 1 1 25%; min-width: 150px; }
-    .col-pathtype { flex: 0 0 100px; text-align: center; }
-    .col-timestamp { flex: 0 0 130px; }
-    .col-actions { flex: 0 0 160px; }
+    /* Grid Column Alignment */
+    .col-format, .col-pathtype {
+      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .col-actions {
+      display: flex;
+      align-items: center;
+    }
   </style>
 
 </head>
 <body>
 
   <div class="list-container">
-    <!-- Flexbox Header -->
+    <!-- Grid Header -->
     <div class="list-header">
-      <div class="col-name px-2">Xref name</div>
-      <div class="col-status px-2">Status</div>
-      <div class="col-format px-2">Format</div>
-      <div class="col-path px-2">File Path</div>
-      <div class="col-pathtype px-2">Path Type</div>
-      <div class="col-timestamp px-2">Last Modified</div>
-      <div class="col-actions px-2">Actions</div>
+      <div class="col-name">Xref Name</div>
+      <div class="col-status">Status</div>
+      <div class="col-format">Format</div>
+      <div class="col-path">File Path</div>
+      <div class="col-pathtype">Path Type</div>
+      <div class="col-timestamp">Last Modified</div>
+      <div class="col-actions">Actions</div>
     </div>
     <!-- List Body (will be populated by JS) -->
     <div id="xref-list-body">
@@ -142,13 +158,13 @@
         });
 
         const nameCol = document.createElement('div');
-        nameCol.className = 'col-name px-2';
+        nameCol.className = 'col-name';
         nameCol.textContent = xref.name;
         nameCol.title = xref.name;
         row.appendChild(nameCol);
 
         const statusCol = document.createElement('div');
-        statusCol.className = 'col-status px-2';
+        statusCol.className = 'col-status';
         let bgClass = '';
         let textClass = 'text-white';
         switch(xref.status_key) {
@@ -183,7 +199,7 @@
         row.appendChild(statusCol);
 
         const formatCol = document.createElement('div');
-        formatCol.className = 'col-format px-2';
+        formatCol.className = 'col-format';
         let formatBadgeClass = 'badge-secondary';
         if (xref.format === 'skp') {
           formatBadgeClass = 'badge-success';
@@ -195,13 +211,13 @@
         row.appendChild(formatCol);
 
         const pathCol = document.createElement('div');
-        pathCol.className = 'col-path px-2 truncate';
+        pathCol.className = 'col-path truncate';
         pathCol.textContent = xref.stored_path;
         pathCol.title = xref.path;
         row.appendChild(pathCol);
 
         const pathTypeCol = document.createElement('div');
-        pathTypeCol.className = 'col-pathtype px-2';
+        pathTypeCol.className = 'col-pathtype';
         let buttonHTML = '';
         if (xref.path_type === 'relative') {
             buttonHTML = `<button class="btn btn-secondary btn-sm" title="Change to Absolute Path" onclick="sketchup.toggle_path_type_clicked('${xref.name}')">Relative</button>`;
@@ -216,12 +232,12 @@
         row.appendChild(pathTypeCol);
 
         const timestampCol = document.createElement('div');
-        timestampCol.className = 'col-timestamp px-2 small text-muted';
+        timestampCol.className = 'col-timestamp small text-muted';
         timestampCol.textContent = formatTimestamp(xref.timestamp);
         row.appendChild(timestampCol);
 
         const actionsCol = document.createElement('div');
-        actionsCol.className = 'col-actions px-2 action-buttons';
+        actionsCol.className = 'col-actions action-buttons';
         actionsCol.addEventListener('click', (event) => {
           event.stopPropagation();
         });
