@@ -27,6 +27,7 @@ module OpenXrefManager
   XREF_LAST_PUBLISHER_NAME_KEY = "last_publisher_name"
   XREF_LAST_PUBLISHER_MODEL_KEY = "last_publisher_model"
   XREF_LAST_PUBLISHER_PATH_KEY = "last_publisher_path"
+  XREF_EDITED_WITHOUT_LOCK_KEY = "edited_without_lock" # true or false - marks XRefs edited without checkout
   TIMER_INTERVAL = 5 # Seconds between background checks
   
   # Messagebox Result Constants
@@ -84,6 +85,10 @@ module OpenXrefManager
     file_found = absolute_path && File.exist?(absolute_path)
     is_unloaded = definition.get_attribute(XREF_DICT_NAME, XREF_UNLOADED_KEY) == true
     stored_timestamp = definition.get_attribute(XREF_DICT_NAME, XREF_TIMESTAMP_KEY)
+    edited_without_lock = definition.get_attribute(XREF_DICT_NAME, XREF_EDITED_WITHOUT_LOCK_KEY) == true
+
+    # If edited without lock, it needs updating
+    return true if edited_without_lock
 
     # An update can't be available if the file isn't found, is unloaded, or has never been loaded.
     return false unless file_found && !is_unloaded && stored_timestamp
@@ -552,6 +557,8 @@ module OpenXrefManager
         lock_content = "#{@user_name}|#{model.guid}|#{model_name}|#{model_path_str}"
 
         File.write(lock_path, lock_content)
+        # Clear the edited_without_lock flag when checking out
+        definition.set_attribute(XREF_DICT_NAME, XREF_EDITED_WITHOUT_LOCK_KEY, false)
         @last_xref_statuses[definition.guid] = { lock_content: lock_content, update_available: _is_update_available?(definition) }
         self.lock_or_unlock_instances_for_definition(definition, false)
       rescue => e
@@ -581,6 +588,8 @@ module OpenXrefManager
       definition.set_attribute(XREF_DICT_NAME, XREF_LAST_PUBLISHER_NAME_KEY, @user_name)
       definition.set_attribute(XREF_DICT_NAME, XREF_LAST_PUBLISHER_MODEL_KEY, model_name)
       definition.set_attribute(XREF_DICT_NAME, XREF_LAST_PUBLISHER_PATH_KEY, model_path_str)
+      # Clear the edited_without_lock flag when saving and checking in
+      definition.set_attribute(XREF_DICT_NAME, XREF_EDITED_WITHOUT_LOCK_KEY, false)
 
       lock_path = path + ".lock"
       File.delete(lock_path) if File.exist?(lock_path)
@@ -767,12 +776,64 @@ module OpenXrefManager
     definition = model.definitions.find { |d| d.name == component_name }
     return unless definition
     
+    # Check if the file is locked
+    lock_content = self.get_xref_lock_status(definition)
+    is_locked = lock_content != "unlocked"
+    
+    if is_locked
+      lock_owner_name, lock_owner_guid, lock_model_name, lock_model_path = lock_content.split('|')
+      lock_model_name ||= "Untitled Model"
+      lock_model_path ||= ""
+      
+      # Check if locked by current user in this model
+      is_mine_in_this_model = (lock_owner_name == @user_name && lock_owner_guid == model.guid)
+      
+      if is_mine_in_this_model
+        # Locked by us in this model - remove the lock file
+        path = self.resolve_xref_path(definition)
+        if path
+          lock_path = path + ".lock"
+          if File.exist?(lock_path)
+            begin
+              File.delete(lock_path)
+            rescue => e
+              puts "Warning: Could not delete lock file #{lock_path}: #{e.message}"
+            end
+          end
+        end
+      else
+        # Locked by someone else or in another session - warn the user
+        question = "Warning: The XRef file '#{component_name}' is currently checked out.\n\n"
+        if lock_owner_name == @user_name
+          question += "It is checked out by you in another model:\n'#{lock_model_name}'\n\n"
+        else
+          question += "It is checked out by: #{lock_owner_name}\nIn model: '#{lock_model_name}'\n\n"
+        end
+        question += "The lock file will remain after unlinking. Do you want to check it out first?"
+        result = UI.messagebox(question, MB_YESNO)
+        
+        if result == IDYES
+          # User wants to check it out first - but we can't if it's locked by someone else
+          if lock_owner_name != @user_name
+            UI.messagebox("Cannot check out: The file is locked by another user (#{lock_owner_name}).\n\nYou may need to ask them to check it in, or use 'Force Unlock' if appropriate.")
+            return
+          else
+            # It's ours elsewhere - we could force unlock, but for now just warn
+            UI.messagebox("The file is checked out in another session. Please check it in from that session first, or use 'Force Unlock' if appropriate.")
+            return
+          end
+        end
+        # User chose to continue without checking out - proceed with unlink
+      end
+    end
+    
     model.start_operation("Unlink XRef", true)
     was_editing = model.active_path && model.active_path.any? { |instance| instance.definition == definition }
     definition.attribute_dictionaries.delete(XREF_DICT_NAME)
     self.lock_or_unlock_instances_for_definition(definition, false)
     model.close_active if was_editing
     model.commit_operation
+    self.check_for_status_changes(show_notification: false)
     self.refresh_dialog_data
   end
 
@@ -882,6 +943,8 @@ module OpenXrefManager
         end
         
         reloaded_definition.set_attribute(XREF_DICT_NAME, XREF_UNLOADED_KEY, false)
+        # Clear the edited_without_lock flag when reloading
+        reloaded_definition.set_attribute(XREF_DICT_NAME, XREF_EDITED_WITHOUT_LOCK_KEY, false)
         
         # Remove XRef attributes from the OLD definition so it's
         # no longer tracked and can be purged.
@@ -904,6 +967,8 @@ module OpenXrefManager
         # This path happens if the definition was *already* purged.
         # In this case, just set the unloaded flag to false.
         reloaded_definition.set_attribute(XREF_DICT_NAME, XREF_UNLOADED_KEY, false)
+        # Clear the edited_without_lock flag when reloading
+        reloaded_definition.set_attribute(XREF_DICT_NAME, XREF_EDITED_WITHOUT_LOCK_KEY, false)
         self._update_xref_timestamp(reloaded_definition)
       end
       
@@ -1052,17 +1117,26 @@ module OpenXrefManager
       definition = instance.definition
       return unless OpenXrefManager.is_xref?(definition)
       
-      # Prevent editing if an update is available.
-      if OpenXrefManager._is_update_available?(definition)
+      # Prevent editing if an update is available and it's locked by someone else.
+      update_available = OpenXrefManager._is_update_available?(definition)
+      lock_content = OpenXrefManager.get_xref_lock_status(definition)
+      is_unlocked = lock_content == "unlocked"
+      is_locked_by_other = false
+      
+      if !is_unlocked
+        lock_owner_name, lock_owner_guid, _, _ = lock_content.split('|')
+        user_name = OpenXrefManager.instance_variable_get(:@user_name)
+        is_locked_by_other = (lock_owner_name != user_name || lock_owner_guid != model.guid)
+      end
+      
+      # If locked by someone else and update available, prevent editing
+      if update_available && is_locked_by_other
         UI.start_timer(0.1, false) do
-          UI.messagebox("This XRef has an update available. Please update it from the XRef Manager before editing.")
+          UI.messagebox("This XRef has an update available and is checked out by another user. Please update it from the XRef Manager before editing.")
           model.close_active if model.active_path # Exit the component edit context
         end
         return
       end
-      
-      lock_content = OpenXrefManager.get_xref_lock_status(definition)
-      is_unlocked = lock_content == "unlocked"
       
       # Check if it's locked by this user, but in a different SketchUp window/model.
       is_mine_elsewhere = false
@@ -1071,18 +1145,37 @@ module OpenXrefManager
         is_mine_elsewhere = (lock_owner_name == OpenXrefManager.instance_variable_get(:@user_name) && lock_owner_guid != model.guid)
       end
 
+      # If locked by someone else (not us), prevent editing
+      if is_locked_by_other
+        UI.start_timer(0.1, false) do
+          lock_owner_name, _, lock_model_name, _ = lock_content.split('|')
+          lock_model_name ||= "an unsaved model"
+          UI.messagebox("Cannot edit: '#{definition.name}' is checked out by #{lock_owner_name} in '#{lock_model_name}'.")
+          model.close_active if model.active_path
+        end
+        return
+      end
+
       # If the component is available or locked by us elsewhere, prompt to check it out.
-      return unless is_unlocked || is_mine_elsewhere
-
-      UI.start_timer(0.1, false) do
-        message = "You are about to edit the '#{definition.name}' XRef component.\n\n"
-        message += is_mine_elsewhere ? "Taking ownership from your other session...\n\n" : ""
-        message += "The component will be checked out to you automatically."
-        UI.messagebox(message)
-
-        # Force unlock if it was ours elsewhere, then check it out here.
-        OpenXrefManager.force_unlock_xref(definition.name) if is_mine_elsewhere
-        OpenXrefManager.check_out_xref(definition.name)
+      if is_unlocked || is_mine_elsewhere
+        UI.start_timer(0.1, false) do
+          message = "You are about to edit the '#{definition.name}' XRef component.\n\n"
+          message += is_mine_elsewhere ? "Taking ownership from your other session...\n\n" : ""
+          message += "Do you want to check it out? (Yes = check out, No = open without locking)"
+          result = UI.messagebox(message, MB_YESNO)
+          
+          if result == IDYES
+            # Force unlock if it was ours elsewhere, then check it out here.
+            OpenXrefManager.force_unlock_xref(definition.name) if is_mine_elsewhere
+            OpenXrefManager.check_out_xref(definition.name)
+            # Clear the edited_without_lock flag when checking out
+            definition.set_attribute(OpenXrefManager::XREF_DICT_NAME, OpenXrefManager::XREF_EDITED_WITHOUT_LOCK_KEY, false)
+          else
+            # User chose to open without locking - mark as needs updating
+            definition.set_attribute(OpenXrefManager::XREF_DICT_NAME, OpenXrefManager::XREF_EDITED_WITHOUT_LOCK_KEY, true)
+            OpenXrefManager.check_for_status_changes(show_notification: false)
+          end
+        end
       end
     end
 
@@ -1114,6 +1207,17 @@ module OpenXrefManager
       new_path = definition.path
       OpenXrefManager._set_xref_path(definition, new_path, ask_user: true)
       
+      # Update the timestamp to match the new file's timestamp to prevent false "edited elsewhere" status
+      if new_path && File.exist?(new_path)
+        begin
+          file_timestamp = File.mtime(new_path).to_i
+          definition.set_attribute(OpenXrefManager::XREF_DICT_NAME, OpenXrefManager::XREF_TIMESTAMP_KEY, file_timestamp)
+        rescue => e
+          puts "Could not update timestamp for new file: #{e.message}"
+        end
+      end
+      
+      OpenXrefManager.check_for_status_changes(show_notification: false)
       OpenXrefManager.refresh_dialog_data
       Sketchup.set_status_text("XRef '#{definition.name}' link updated to new file.")
     end
