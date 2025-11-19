@@ -1,4 +1,4 @@
-# v1.3.4
+# v1.3.5
 # Copyright (c) 2025 Your Name or Company Name
 #
 # This program is free software; you can redistribute it and/or modify
@@ -232,6 +232,53 @@ module OpenXrefManager
     return !my_xrefs.empty?
   end
 
+  # Helper method to check if a specific XRef has uncommitted changes (is checked out by current user in this model).
+  def self.xref_has_uncommitted_changes?(definition)
+    return false unless definition && definition.valid?
+    model = definition.model
+    return false unless model && model.valid?
+    current_guid = model.guid
+    
+    lock_content = self.get_xref_lock_status(definition)
+    return false if lock_content == "unlocked"
+    
+    lock_owner_name, lock_owner_guid = lock_content.split('|')
+    # Check if locked by this user in THIS window
+    return (lock_owner_name == @user_name && lock_owner_guid == current_guid)
+  end
+
+  # Helper method to ask user if they want to publish changes before continuing with an operation.
+  # Returns: true if operation should proceed, false if user cancelled
+  def self.ask_publish_before_operation?(component_name, operation_name)
+    definition = Sketchup.active_model.definitions.find { |d| d.name == component_name }
+    return true unless definition && self.xref_has_uncommitted_changes?(definition)
+    
+    question = "Warning: '#{component_name}' has uncommitted changes.\n\n" +
+               "If you #{operation_name}, these changes will be lost.\n\n" +
+               "Do you want to publish (save and check in) the changes first?"
+    result = UI.messagebox(question, MB_YESNO)
+    
+    if result == IDYES
+      # User wants to publish - save and check in the XRef
+      self.save_and_check_in_xref(component_name)
+      
+      # Check if publishing was successful (XRef should no longer have uncommitted changes)
+      definition = Sketchup.active_model.definitions.find { |d| d.name == component_name }
+      if definition && self.xref_has_uncommitted_changes?(definition)
+        # Publishing failed - ask if they still want to continue
+        question2 = "Publishing failed. Do you still want to #{operation_name}? (Changes will be lost)"
+        result2 = UI.messagebox(question2, MB_YESNO)
+        return (result2 == IDYES)
+      else
+        # Publishing succeeded - continue with the operation
+        return true
+      end
+    else
+      # User chose NO - they want to continue without publishing (lose changes)
+      return true
+    end
+  end
+
   # Helper method to show a confirmation dialog.
   # Returns true if the user wants to continue (lose changes), false otherwise.
   def self.confirm_close_with_uncommitted_changes?(action_text = "continue")
@@ -439,6 +486,9 @@ module OpenXrefManager
     definition = model.definitions.find { |d| d.name == component_name }
     return unless definition
     
+    # Check for uncommitted changes and ask if user wants to publish first
+    return unless self.ask_publish_before_operation?(component_name, "relink this XRef")
+    
     path_to_relink = UI.openpanel("Select new file for '#{component_name}'", "", "*.skp")
     return unless path_to_relink
 
@@ -599,7 +649,6 @@ module OpenXrefManager
       UI.messagebox("Failed to save component '#{definition.name}'.\nError: #{e.message}")
       return false
     end
-    self.refresh_dialog_data
   end
 
   # Saves and checks in all XRefs currently checked out by the user in this model.
@@ -776,6 +825,9 @@ module OpenXrefManager
     definition = model.definitions.find { |d| d.name == component_name }
     return unless definition
     
+    # Check for uncommitted changes and ask if user wants to publish first
+    return unless self.ask_publish_before_operation?(component_name, "unlink this XRef")
+    
     # Check if the file is locked
     lock_content = self.get_xref_lock_status(definition)
     is_locked = lock_content != "unlocked"
@@ -842,6 +894,9 @@ module OpenXrefManager
     model = Sketchup.active_model
     definition = model.definitions.find { |d| d.name == component_name }
     return unless definition
+    
+    # Check for uncommitted changes and ask if user wants to publish first
+    return unless self.ask_publish_before_operation?(component_name, "unload this XRef")
     
     lock_content = self.get_xref_lock_status(definition)
     
