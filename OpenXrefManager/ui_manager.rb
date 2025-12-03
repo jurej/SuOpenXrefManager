@@ -10,7 +10,7 @@ module OpenXrefManager
     model = Sketchup.active_model
     return "[]" unless model
     
-    xref_definitions = get_xref_definitions
+    xref_definitions = get_xref_definitions.sort_by { |d| d.name.downcase }
     
     data = xref_definitions.map do |definition|
       path = resolve_xref_path(definition)
@@ -163,8 +163,24 @@ module OpenXrefManager
         self.unlink_single_xref(component_name)
       end
 
-      @dialog.add_action_callback("publish_all_clicked") do |action_context|
-        self.save_and_check_in_all_my_xrefs
+      @dialog.add_action_callback("publish_all_clicked") do |action_context, keep_locked_str|
+        # Convert JavaScript boolean string to Ruby boolean
+        keep_locked = (keep_locked_str == "true")
+        # Save the preference for next time
+        Sketchup.write_default("OpenXrefManager", "KeepLockedAfterPublish", keep_locked)
+        self.save_and_check_in_all_my_xrefs(keep_locked: keep_locked)
+      end
+      
+      @dialog.add_action_callback("get_keep_locked_preference") do |action_context|
+        # Return the saved preference (default to false)
+        keep_locked = Sketchup.read_default("OpenXrefManager", "KeepLockedAfterPublish", false)
+        @dialog.execute_script("setKeepLockedCheckbox(#{keep_locked});")
+      end
+      
+      @dialog.add_action_callback("get_monitoring_state") do |action_context|
+        # Return the current monitoring paused state
+        is_paused = self.monitoring_paused?
+        @dialog.execute_script("setMonitoringButtonState(#{is_paused});")
       end
       
       @dialog.add_action_callback("purge_unused_clicked") do |action_context|
@@ -173,6 +189,38 @@ module OpenXrefManager
       
       @dialog.add_action_callback("toggle_path_type_clicked") do |action_context, component_name|
         self.toggle_path_type(component_name)
+      end
+      
+      @dialog.add_action_callback("set_user_clicked") do |action_context|
+        self.set_user_name
+      end
+      
+      @dialog.add_action_callback("settings_clicked") do |action_context|
+        self.show_settings_dialog
+      end
+      
+      @dialog.add_action_callback("pause_monitoring_clicked") do |action_context|
+        self.pause_monitoring
+      end
+      
+      @dialog.add_action_callback("resume_monitoring_clicked") do |action_context|
+        self.resume_monitoring
+      end
+      
+      @dialog.add_action_callback("reload_all_clicked") do |action_context|
+        self.reload_all_xrefs
+      end
+      
+      @dialog.add_action_callback("import_origin_clicked") do |action_context|
+        self.import_as_xref_at_origin
+      end
+      
+      @dialog.add_action_callback("import_place_clicked") do |action_context|
+        self.import_as_xref
+      end
+      
+      @dialog.add_action_callback("create_xref_clicked") do |action_context|
+        self.create_xref_from_component
       end
 
       # New callback for JS confirmation dialogs

@@ -37,6 +37,32 @@ module OpenXrefManager
     cmd_publish.large_icon = File.join(__dir__, "icons", "publish_icon.png")
     toolbar.add_item(cmd_publish)
     
+    cmd_pause_monitoring = UI::Command.new("Pause/Resume Monitoring") do
+      if self.monitoring_paused?
+        self.resume_monitoring
+        Sketchup.set_status_text("XRef monitoring resumed")
+        # Update dialog button if dialog is open
+        if @dialog && @dialog.visible?
+          @dialog.execute_script("setMonitoringButtonState(false);")
+        end
+      else
+        self.pause_monitoring
+        Sketchup.set_status_text("XRef monitoring paused")
+        # Update dialog button if dialog is open
+        if @dialog && @dialog.visible?
+          @dialog.execute_script("setMonitoringButtonState(true);")
+        end
+      end
+    end
+    cmd_pause_monitoring.tooltip = "Pause/Resume background XRef monitoring"
+    cmd_pause_monitoring.small_icon = File.join(__dir__, "icons", "icon_pause.png")
+    cmd_pause_monitoring.large_icon = File.join(__dir__, "icons", "icon_pause.png")
+    cmd_pause_monitoring.set_validation_proc do
+      # Show checkmark when paused
+      self.monitoring_paused? ? MF_CHECKED : MF_UNCHECKED
+    end
+    toolbar.add_item(cmd_pause_monitoring)
+    
     toolbar.restore
 
     # --- Menus ---
@@ -45,7 +71,10 @@ module OpenXrefManager
     menu = extensions_menu.add_submenu("Open XRef Manager")
     menu.add_item(cmd_manager)
     menu.add_item(cmd_publish)
+    menu.add_item(cmd_pause_monitoring)
+    menu.add_separator
     menu.add_item("Set User Name...") { self.set_user_name }
+    menu.add_item("Settings...") { self.show_settings_dialog }
     menu.add_separator
     menu.add_item("Import XRef at Origin...") { self.import_as_xref_at_origin }
     menu.add_item("Import XRef (Place)...") { self.import_as_xref }

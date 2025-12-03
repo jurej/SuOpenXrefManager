@@ -33,9 +33,14 @@
       align-items: center;
       gap: 0.5rem;
       justify-content: flex-start;
+      padding: 0.25rem 0;
     }
 
     .footer {
+      flex-shrink: 0;
+    }
+
+    .header {
       flex-shrink: 0;
     }
 
@@ -58,9 +63,7 @@
 
     .table th,
     .table td {
-      padding: 0.75rem;
       vertical-align: middle;
-      border-bottom: 1px solid #dee2e6;
       text-align: left;
     }
 
@@ -103,6 +106,10 @@
       width: 15%;
     }
 
+    .col-actions.action-buttons {
+      padding: 0.25rem 0.75rem !important;
+    }
+
     .cell-truncate {
       white-space: nowrap;
       overflow: hidden;
@@ -118,6 +125,35 @@
 
 <body>
 
+  <div class="header p-3 bg-light border-bottom d-flex justify-content-between align-items-center">
+    <div class="d-flex">
+      <button id="set-user-button" class="btn btn-outline-secondary btn-sm" title="Set User Name">
+        <i class="material-icons">person</i> Set User
+      </button>
+      <button id="settings-button" class="btn btn-outline-secondary btn-sm ml-2" title="XRef Manager Settings">
+        <i class="material-icons">settings</i> Settings
+      </button>
+      <button id="pause-monitoring-button" class="btn btn-outline-secondary btn-sm ml-2" title="Pause background monitoring">
+        <i class="material-icons">pause</i> Pause Monitoring
+      </button>
+      <button id="reload-all-button" class="btn btn-outline-secondary btn-sm ml-2" title="Reload All XRefs">
+        <i class="material-icons">sync</i> Reload All
+      </button>
+    </div>
+
+    <div class="d-flex">
+      <button id="import-origin-button" class="btn btn-outline-primary btn-sm" title="Import XRef at Origin">
+        <i class="material-icons">add_location</i> Import at Origin
+      </button>
+      <button id="import-place-button" class="btn btn-outline-primary btn-sm ml-2" title="Import XRef (Place)">
+        <i class="material-icons">add_location_alt</i> Import & Place
+      </button>
+      <button id="create-xref-button" class="btn btn-outline-primary btn-sm ml-2" title="Create XRef from Component">
+        <i class="material-icons">create_new_folder</i> Create from Component
+      </button>
+    </div>
+  </div>
+
   <div class="list-container">
     <table class="table">
       <thead>
@@ -126,7 +162,7 @@
           <th class="col-status">Status</th>
           <th class="col-path">File Path</th>
           <th class="col-pathtype">Path Type</th>
-          <th class="col-timestamp">Last Modified</th>
+          <th class="col-timestamp">Last Commit</th>
           <th class="col-actions">Actions</th>
         </tr>
       </thead>
@@ -140,10 +176,16 @@
     <div class="d-flex justify-content-between">
 
       <button id="purge-button" class="btn btn-outline-secondary">
-        <i class="material-icons">delete_sweep</i> Purge Unused
+        <i class="material-icons">delete_sweep</i> Purge Removed Xref's
       </button>
 
-      <div class="d-flex">
+      <div class="d-flex align-items-center">
+        <div class="form-check mr-3">
+          <input class="form-check-input" type="checkbox" id="keep-locked-checkbox">
+          <label class="form-check-label" for="keep-locked-checkbox">
+            Keep locked after publish
+          </label>
+        </div>
         <button id="refresh-button" class="btn btn-tertiary ml-2" title="Refresh Status">
           <i class="material-icons">refresh</i>
         </button>
@@ -164,6 +206,16 @@
     const publishAllButton = document.getElementById('publish-all-button');
     const purgeButton = document.getElementById('purge-button');
     const refreshButton = document.getElementById('refresh-button');
+    const keepLockedCheckbox = document.getElementById('keep-locked-checkbox');
+    const setUserButton = document.getElementById('set-user-button');
+    const settingsButton = document.getElementById('settings-button');
+    const pauseMonitoringButton = document.getElementById('pause-monitoring-button');
+    const reloadAllButton = document.getElementById('reload-all-button');
+    const importOriginButton = document.getElementById('import-origin-button');
+    const importPlaceButton = document.getElementById('import-place-button');
+    const createXrefButton = document.getElementById('create-xref-button');
+    
+    let monitoringPaused = false;
 
     function formatTimestamp(unix_timestamp) {
       if (!unix_timestamp) {
@@ -225,6 +277,7 @@
         let titleAttr = '';
         if (xref.update_available) {
           let titleText = `File updated at: ${formatTimestamp(xref.file_timestamp)}`;
+          titleText += `\nLast Commit: ${formatTimestamp(xref.timestamp)}`;
 
           if (xref.is_locked && xref.lock_model) {
             titleText += `\n\nStatus: Locked by ${xref.lock_owner_name}`;
@@ -241,19 +294,27 @@
           titleAttr = `title="${titleText}"`;
 
         } else if (xref.status_key == 'locked' || xref.status_key == 'mine_elsewhere') {
-          let titleText = `Locked by: ${xref.lock_owner_name}`;
+          let titleText = `Last Commit: ${formatTimestamp(xref.timestamp)}`;
+          titleText += `\n\nLocked by: ${xref.lock_owner_name}`;
           titleText += `\nIn File: ${xref.lock_model}`;
           if (xref.lock_model_path && xref.lock_model_path !== "") {
             titleText += `\nFile Path: ${xref.lock_model_path}`;
           }
           titleAttr = `title="${titleText}"`;
 
-        } else if (xref.status_key == 'ok' || xref.status_key == 'unloaded') {
+        } else if (xref.status_key == 'ok' || xref.status_key == 'unloaded' || xref.status_key == 'mine') {
+          let titleText = `Last Commit: ${formatTimestamp(xref.timestamp)}`;
           if (xref.last_publisher_name) {
-            let titleText = `Last Published by: ${xref.last_publisher_name}`;
+            titleText += `\n\nLast Published by: ${xref.last_publisher_name}`;
             if (xref.last_publisher_path) {
               titleText += `\nFrom Path: ${xref.last_publisher_path}`;
             }
+          }
+          titleAttr = `title="${titleText}"`;
+        } else {
+          // For other status keys (like 'not_found'), still show last commit if available
+          if (xref.timestamp) {
+            let titleText = `Last Commit: ${formatTimestamp(xref.timestamp)}`;
             titleAttr = `title="${titleText}"`;
           }
         }
@@ -323,13 +384,23 @@
               lockButton = `<button class="btn btn-info btn-sm" disabled><i class="material-icons">lock</i></button>`;
           }
         } else {
-          lockButton = `<button class="btn btn-info btn-sm" title="Check Out" onclick="sketchup.check_out_clicked('${xref.name}')"><i class="material-icons">lock_open</i></button>`;
+          // Disable Check Out button if XRef is unloaded
+          if (xref.is_unloaded) {
+            lockButton = `<button class="btn btn-secondary btn-sm" title="Reload XRef first to check out" disabled><i class="material-icons">lock_open</i></button>`;
+          } else {
+            lockButton = `<button class="btn btn-info btn-sm" title="Check Out" onclick="sketchup.check_out_clicked('${xref.name}')"><i class="material-icons">lock_open</i></button>`;
+          }
         }
 
         // Column 2: Update/Relink
         let updateButton = '';
         if (xref.update_available) {
-          updateButton = `<button class="btn btn-danger btn-sm" title="Update File..." onclick="sketchup.reload_single_clicked('${xref.name}', true)"><i class="material-icons">update</i></button>`;
+          // Disable Update button if XRef is unloaded
+          if (xref.is_unloaded) {
+            updateButton = `<button class="btn btn-secondary btn-sm" title="Reload XRef first to update" disabled><i class="material-icons">update</i></button>`;
+          } else {
+            updateButton = `<button class="btn btn-danger btn-sm" title="Update File..." onclick="sketchup.reload_single_clicked('${xref.name}', true)"><i class="material-icons">update</i></button>`;
+          }
         } else {
           updateButton = `<button class="btn btn-info btn-sm" title="Replace/Relink File..." onclick="sketchup.relink_clicked('${xref.name}')"><i class="material-icons">link</i></button>`;
         }
@@ -381,7 +452,12 @@
     }
 
     closeButton.onclick = function () { if (sketchup) { sketchup.close_dialog(); } };
-    publishAllButton.onclick = function () { if (sketchup) { sketchup.publish_all_clicked(); } };
+    publishAllButton.onclick = function () {
+      if (sketchup) {
+        const keepLocked = keepLockedCheckbox.checked;
+        sketchup.publish_all_clicked(keepLocked.toString());
+      }
+    };
     purgeButton.onclick = function () {
       sketchup.request_confirmation("Are you sure you want to remove all unused XRefs from this model?\nThis action cannot be undone and will skip any locked files.", 'confirmPurge', '');
     };
@@ -393,7 +469,74 @@
       requestDataRefresh();
     };
 
+    setUserButton.onclick = function () {
+      if (sketchup) { sketchup.set_user_clicked(); }
+    };
+
+    settingsButton.onclick = function () {
+      if (sketchup) { sketchup.settings_clicked(); }
+    };
+
+    pauseMonitoringButton.onclick = function () {
+      monitoringPaused = !monitoringPaused;
+      if (sketchup) { 
+        if (monitoringPaused) {
+          sketchup.pause_monitoring_clicked();
+          pauseMonitoringButton.innerHTML = '<i class="material-icons">play_arrow</i> Resume Monitoring';
+          pauseMonitoringButton.title = 'Resume background monitoring';
+          pauseMonitoringButton.classList.remove('btn-outline-secondary');
+          pauseMonitoringButton.classList.add('btn-warning');
+        } else {
+          sketchup.resume_monitoring_clicked();
+          pauseMonitoringButton.innerHTML = '<i class="material-icons">pause</i> Pause Monitoring';
+          pauseMonitoringButton.title = 'Pause background monitoring';
+          pauseMonitoringButton.classList.remove('btn-warning');
+          pauseMonitoringButton.classList.add('btn-outline-secondary');
+        }
+      }
+    };
+
+    reloadAllButton.onclick = function () {
+      if (sketchup) { sketchup.reload_all_clicked(); }
+    };
+
+    importOriginButton.onclick = function () {
+      if (sketchup) { sketchup.import_origin_clicked(); }
+    };
+
+    importPlaceButton.onclick = function () {
+      if (sketchup) { sketchup.import_place_clicked(); }
+    };
+
+    createXrefButton.onclick = function () {
+      if (sketchup) { sketchup.create_xref_clicked(); }
+    };
+
+    function setKeepLockedCheckbox(value) {
+      keepLockedCheckbox.checked = value;
+    }
+
+    function setMonitoringButtonState(isPaused) {
+      monitoringPaused = isPaused;
+      if (isPaused) {
+        pauseMonitoringButton.innerHTML = '<i class="material-icons">play_arrow</i> Resume Monitoring';
+        pauseMonitoringButton.title = 'Resume background monitoring';
+        pauseMonitoringButton.classList.remove('btn-outline-secondary');
+        pauseMonitoringButton.classList.add('btn-warning');
+      } else {
+        pauseMonitoringButton.innerHTML = '<i class="material-icons">pause</i> Pause Monitoring';
+        pauseMonitoringButton.title = 'Pause background monitoring';
+        pauseMonitoringButton.classList.remove('btn-warning');
+        pauseMonitoringButton.classList.add('btn-outline-secondary');
+      }
+    }
+
     window.addEventListener('DOMContentLoaded', function () {
+      // Request saved checkbox preference and monitoring state
+      if (sketchup) { 
+        sketchup.get_keep_locked_preference();
+        sketchup.get_monitoring_state();
+      }
       requestDataRefresh();
     });
   </script>

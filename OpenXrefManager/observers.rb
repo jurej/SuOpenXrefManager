@@ -135,24 +135,49 @@ module OpenXrefManager
         return
       end
 
-      # If the component is available or locked by us elsewhere, prompt to check it out.
+      # Check if auto-checkout is enabled for this model
+      auto_checkout_enabled = OpenXrefManager.get_auto_checkout_setting
+      
+      # If the component is available or locked by us elsewhere, handle checkout based on settings
       if is_unlocked || is_mine_elsewhere
-        UI.start_timer(0.1, false) do
-          message = "You are about to edit the '#{definition.name}' XRef component.\n\n"
-          message += is_mine_elsewhere ? "Taking ownership from your other session...\n\n" : ""
-          message += "Do you want to check it out? (Yes = check out, No = open without locking)"
-          result = UI.messagebox(message, MB_YESNO)
-          
-          if result == IDYES
-            # Force unlock if it was ours elsewhere, then check it out here.
-            OpenXrefManager.force_unlock_xref(definition.name) if is_mine_elsewhere
-            OpenXrefManager.check_out_xref(definition.name)
-            # Clear the edited_without_lock flag when checking out
-            definition.set_attribute(OpenXrefManager::XREF_DICT_NAME, OpenXrefManager::XREF_EDITED_WITHOUT_LOCK_KEY, false)
-          else
-            # User chose to open without locking - mark as needs updating
-            definition.set_attribute(OpenXrefManager::XREF_DICT_NAME, OpenXrefManager::XREF_EDITED_WITHOUT_LOCK_KEY, true)
-            OpenXrefManager.check_for_status_changes(show_notification: false)
+        if auto_checkout_enabled
+          # Auto-checkout enabled: prompt to check it out
+          UI.start_timer(0.1, false) do
+            message = "You are about to edit the '#{definition.name}' XRef component.\n\n"
+            message += is_mine_elsewhere ? "Taking ownership from your other session...\n\n" : ""
+            message += "Do you want to check it out? (Yes = check out, No = open without locking)"
+            result = UI.messagebox(message, MB_YESNO)
+            
+            if result == IDYES
+              # Force unlock if it was ours elsewhere, then check it out here.
+              OpenXrefManager.force_unlock_xref(definition.name) if is_mine_elsewhere
+              OpenXrefManager.check_out_xref(definition.name)
+              # Clear the edited_without_lock flag when checking out
+              definition.set_attribute(OpenXrefManager::XREF_DICT_NAME, OpenXrefManager::XREF_EDITED_WITHOUT_LOCK_KEY, false)
+            else
+              # User chose to open without locking - mark as needs updating
+              definition.set_attribute(OpenXrefManager::XREF_DICT_NAME, OpenXrefManager::XREF_EDITED_WITHOUT_LOCK_KEY, true)
+              OpenXrefManager.check_for_status_changes(show_notification: false)
+            end
+          end
+        else
+          # Auto-checkout disabled: warn user they need to check out manually
+          UI.start_timer(0.1, false) do
+            message = "Warning: '#{definition.name}' is an XRef component.\n\n"
+            message += is_mine_elsewhere ? "This XRef is checked out by you in another session.\n" : ""
+            message += "Auto-checkout is DISABLED in settings.\n\n"
+            message += "Please check out this XRef from the XRef Manager before making changes, or your edits will not be saved to the external file.\n\n"
+            message += "Continue editing without checking out?"
+            result = UI.messagebox(message, MB_YESNO)
+            
+            if result == IDNO
+              # User chose not to continue - exit edit mode
+              model.close_active if model.active_path
+            else
+              # User chose to continue without locking - mark as edited without lock
+              definition.set_attribute(OpenXrefManager::XREF_DICT_NAME, OpenXrefManager::XREF_EDITED_WITHOUT_LOCK_KEY, true)
+              OpenXrefManager.check_for_status_changes(show_notification: false)
+            end
           end
         end
       end

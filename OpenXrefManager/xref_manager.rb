@@ -79,10 +79,17 @@ module OpenXrefManager
 
   # Locks or unlocks all instances of a given definition.
   def self.lock_or_unlock_instances_for_definition(definition, should_be_locked)
-    definition.instances.each do |instance|
-      if instance.locked? != should_be_locked
-        instance.locked = should_be_locked 
-      end
+    # OPTIMIZATION: Use to_a to avoid iterator invalidation and batch the operation
+    instances = definition.instances.to_a
+    return if instances.empty? # Early exit if no instances
+    
+    # Only update instances that need changing
+    instances_to_update = instances.select { |inst| inst.valid? && inst.locked? != should_be_locked }
+    return if instances_to_update.empty? # Early exit if nothing to change
+    
+    # Batch update all at once
+    instances_to_update.each do |instance|
+      instance.locked = should_be_locked
     end
   end
 
@@ -290,6 +297,7 @@ module OpenXrefManager
         # Clear the edited_without_lock flag when checking out
         definition.set_attribute(XREF_DICT_NAME, XREF_EDITED_WITHOUT_LOCK_KEY, false)
         @last_xref_statuses[definition.guid] = { lock_content: lock_content, update_available: _is_update_available?(definition) }
+        # Always unlock instances when checking out
         self.lock_or_unlock_instances_for_definition(definition, false)
       rescue => e
         UI.messagebox("Failed to create lock file:\n#{e.message}")
@@ -301,8 +309,10 @@ module OpenXrefManager
     self.refresh_dialog_data
   end
   
-  # Internal helper to save a definition and remove its lock file.
-  def self._silent_save_and_check_in(definition)
+  # Internal helper to save a definition and optionally remove its lock file.
+  # @param definition [Sketchup::ComponentDefinition] The XRef definition to save
+  # @param keep_locked [Boolean] If true, keeps the lock file after saving (default: false)
+  def self._silent_save_and_check_in(definition, keep_locked: false)
     path = self.resolve_xref_path(definition)
     return false unless path
     begin
@@ -322,8 +332,17 @@ module OpenXrefManager
       definition.set_attribute(XREF_DICT_NAME, XREF_EDITED_WITHOUT_LOCK_KEY, false)
 
       lock_path = path + ".lock"
-      File.delete(lock_path) if File.exist?(lock_path)
-      @last_xref_statuses[definition.guid] = { lock_content: "unlocked", update_available: false }
+      if keep_locked
+        # Keep the lock file - XRef remains checked out, keep instances unlocked
+        lock_content = File.exist?(lock_path) ? File.read(lock_path).strip : "unlocked"
+        @last_xref_statuses[definition.guid] = { lock_content: lock_content, update_available: false }
+      else
+        # Remove the lock file - XRef is checked in, unlock instances
+        File.delete(lock_path) if File.exist?(lock_path)
+        @last_xref_statuses[definition.guid] = { lock_content: "unlocked", update_available: false }
+        # Unlock the instances since the XRef is now checked in and available for editing
+        self.lock_or_unlock_instances_for_definition(definition, false)
+      end
       return true
     rescue => e
       UI.messagebox("Failed to save component '#{definition.name}'.\nError: #{e.message}")
@@ -331,8 +350,9 @@ module OpenXrefManager
     end
   end
 
-  # Saves and checks in all XRefs currently checked out by the user in this model.
-  def self.save_and_check_in_all_my_xrefs
+  # Saves and optionally checks in all XRefs currently checked out by the user in this model.
+  # @param keep_locked [Boolean] If true, keeps XRefs locked after saving (default: false)
+  def self.save_and_check_in_all_my_xrefs(keep_locked: false)
     model = Sketchup.active_model
     current_guid = model.guid
 
@@ -348,9 +368,10 @@ module OpenXrefManager
       return
     end
 
-    model.start_operation("Save & Check In All My XRefs", true)
+    operation_name = keep_locked ? "Save All My XRefs" : "Save & Check In All My XRefs"
+    model.start_operation(operation_name, true)
 
-    # Check if we are currently editing any of the XRefs being checked in.
+    # Check if we are currently editing any of the XRefs being saved.
     was_editing_an_xref = false
     if model.active_path
       was_editing_an_xref = model.active_path.any? do |instance|
@@ -359,7 +380,7 @@ module OpenXrefManager
     end
 
     my_xrefs.each do |definition|
-      self._silent_save_and_check_in(definition)
+      self._silent_save_and_check_in(definition, keep_locked: keep_locked)
     end
     model.close_active if was_editing_an_xref
     model.commit_operation
@@ -369,8 +390,10 @@ module OpenXrefManager
 
   end
   
-  # Saves and checks in a single XRef.
-  def self.save_and_check_in_xref(component_name)
+  # Saves and optionally checks in a single XRef.
+  # @param component_name [String] Name of the component
+  # @param keep_locked [Boolean] If true, keeps the XRef locked after saving (default: false)
+  def self.save_and_check_in_xref(component_name, keep_locked: false)
     model = Sketchup.active_model
     definition = model.definitions.find { |d| d.name == component_name }
     return unless definition
@@ -379,9 +402,10 @@ module OpenXrefManager
     lock_owner_name, lock_owner_guid = lock_content.split('|')
     
     if lock_owner_name == @user_name && lock_owner_guid == model.guid
-      model.start_operation("Save & Check In XRef", true)
+      operation_name = keep_locked ? "Save XRef" : "Save & Check In XRef"
+      model.start_operation(operation_name, true)
       was_editing = model.active_path && model.active_path.any? { |instance| instance.definition == definition }
-      self._silent_save_and_check_in(definition)
+      self._silent_save_and_check_in(definition, keep_locked: keep_locked)
       model.close_active if was_editing
       model.commit_operation
       self.check_for_status_changes(show_notification: false)
@@ -418,16 +442,17 @@ module OpenXrefManager
   end
 
   # Imports a file as a new XRef and places it for the user to position.
-  # Supports .skp, .ifc, .dwg, .dxf
+  # Supports .skp files only
   def self.import_as_xref
     model = Sketchup.active_model
-    path = UI.openpanel("Import XRef file", "", "SketchUp Files|*.skp|IFC Files|*.ifc|AutoCAD Files|*.dwg;*.dxf||")
+    path = UI.openpanel("Import XRef file", "", "SketchUp Files|*.skp||")
     return unless path
     
     model.start_operation("Import as XRef", true)
     begin
       new_definition = model.definitions.load(path)
       self._set_xref_path(new_definition, path, ask_user: true)
+      self._update_xref_timestamp(new_definition)
       model.place_component(new_definition, true)
     rescue => e
       UI.messagebox("Failed to import XRef.\nError: #{e.message}")
@@ -440,12 +465,13 @@ module OpenXrefManager
   # Imports a .skp file as a new XRef at the model origin.
   def self.import_as_xref_at_origin
     model = Sketchup.active_model
-    path = UI.openpanel("Import XRef at Origin", "", "SketchUp Files|*.skp|IFC Files|*.ifc|AutoCAD Files|*.dwg;*.dxf||")
+    path = UI.openpanel("Import XRef at Origin", "", "SketchUp Files|*.skp||")
     return unless path
     model.start_operation("Import XRef at Origin", true)
     begin
       new_definition = model.definitions.load(path)
       self._set_xref_path(new_definition, path, ask_user: true)
+      self._update_xref_timestamp(new_definition)
       model.entities.add_instance(new_definition, Geom::Transformation.new)
     rescue => e
       UI.messagebox("Failed to import XRef.\nError: #{e.message}")
@@ -477,6 +503,7 @@ module OpenXrefManager
     begin
       definition.save_as(path)
       self._set_xref_path(definition, path, ask_user: true)
+      self._update_xref_timestamp(definition)
     rescue => e
       UI.messagebox("Failed to save new XRef file.\nError: #{e.message}")
       model.abort_operation
