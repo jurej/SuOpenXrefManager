@@ -1,5 +1,6 @@
 require 'json'
 require_relative 'core'
+require_relative 'xref_manager'
 
 module OpenXrefManager
 
@@ -65,6 +66,11 @@ module OpenXrefManager
       # Determine if we can use relative paths (model must be saved)
       can_be_relative = !model.path.nil? && !model.path.empty?
       
+      # Check travel-through mode
+      travel_through_enabled = is_travel_through_enabled?(definition)
+      nested_xrefs = find_nested_xrefs(definition)
+      has_nested_xrefs = !nested_xrefs.empty?
+      
       {
         name: definition.name,
         path: path || "Missing",
@@ -83,7 +89,9 @@ module OpenXrefManager
         is_unloaded: is_unloaded,
         found: (path && File.exist?(path)),
         last_publisher_name: last_publisher_name,
-        last_publisher_path: last_publisher_path
+        last_publisher_path: last_publisher_path,
+        travel_through_enabled: travel_through_enabled,
+        has_nested_xrefs: has_nested_xrefs
       }
     end
     
@@ -161,6 +169,14 @@ module OpenXrefManager
       
       @dialog.add_action_callback("unlink_single_clicked") do |action_context, component_name|
         self.unlink_single_xref(component_name)
+      end
+
+      @dialog.add_action_callback("enable_travel_through_clicked") do |action_context, component_name|
+        self.enable_travel_through(component_name)
+      end
+
+      @dialog.add_action_callback("disable_travel_through_clicked") do |action_context, component_name|
+        self.disable_travel_through(component_name)
       end
 
       @dialog.add_action_callback("publish_all_clicked") do |action_context, keep_locked_str|

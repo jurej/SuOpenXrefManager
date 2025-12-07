@@ -1,7 +1,7 @@
 module OpenXrefManager
 
   # --- Constants ---
-  VERSION = "1.5.0"
+  VERSION = "1.6.0"
   XREF_DICT_NAME = "OpenXrefManager::Xref"
   XREF_PATH_KEY = "path"
   XREF_PATH_TYPE_KEY = "path_type" # "absolute" or "relative"
@@ -19,6 +19,9 @@ module OpenXrefManager
   SETTINGS_AUTO_CHECKOUT_KEY = "auto_checkout_on_edit"
   SETTINGS_CHECK_INTERVAL_KEY = "check_interval_seconds"
   DEFAULT_CHECK_INTERVAL = 2.0 # Default: 2 seconds
+  
+  # Travel-through mode keys (stored in model settings)
+  SETTINGS_TRAVEL_THROUGH_XREFS_KEY = "travel_through_xrefs" # Hash of definition GUID => user info
 
   # --- Global Variables ---
   @user_name = ENV['USERNAME'] || ENV['USER'] || 'Unknown'
@@ -27,6 +30,7 @@ module OpenXrefManager
   @last_model_guid = nil
   @dialog = nil # Keep track of the dialog instance
   @monitoring_paused = false # Track if background monitoring is paused
+  @travel_through_active = {} # Track active travel-through state: definition GUID => true
   
   # Using a class variable to hold observer instances to ensure they are not garbage collected.
   @@app_observer = nil

@@ -335,6 +335,36 @@ MyProject/
 3. Team members can check out individual components
 4. Move the entire "MyProject" folder without breaking links
 
+## Nested XRefs & Travel-Through Mode
+
+The plugin supports **Nested XRefs** (XRefs inside other XRefs). This allows you to build complex hierarchies, like:
+`Building.skp` -> contains `Floor.skp` -> contains `Room.skp` -> contains `Furniture.skp`
+
+To edit a deeply nested component (e.g., `Furniture.skp`) while inside `Building.skp`, you must "pass through" the intermediate XRefs (`Floor` and `Room`).
+
+### How it Works
+
+1.  **Navigation**: When you double-click to enter a Parent XRef that contains nested XRefs, you are entering **Travel-Through Mode**.
+2.  **Permission**: The plugin recognizes you are just "traveling through" to reach a child. It allows you to enter the Parent *without* checking it out.
+3.  **Editing**: You cannot edit the Parent itself in this mode. You can only navigate down to the Child XRef you want to edit.
+4.  **Checkout**: When you reach the target Child XRef and enter it, you will be prompted to Check Out normally.
+
+### Enabling Travel-Through
+
+If a Parent XRef is locked (by you or someone else), you can explicitly **enable Travel-Through mode**:
+
+1.  Open XRef Manager.
+2.  Find the locked Parent XRef.
+3.  Click the **Enable Travel-Through** button (arrow icon).
+4.  You can now double-click into that Parent to reach its children.
+
+### Do's and Don'ts
+
+- **DO** use Travel-Through to make quick edits to deep components without disrupting the main assembly.
+- **DO** disable Travel-Through mode when you are finished navigating.
+- **DON'T** try to save the Parent XRef while Travel-Through is active. Saving is blocked to prevent accidental overwrites of the parent structure.
+- **DON'T** force unlock a Parent just to edit a Child. Use Travel-Through instead.
+
 ## Context Menu (Right-Click)
 
 Right-click on XRef component instances for quick access:
@@ -560,6 +590,14 @@ For issues, questions, or feature requests:
 See LICENSE file for details.
 
 ## Version History
+
+### Version 1.6.0
+**Major Stability Update:**
+- **Nested XRefs**: Full support for editing nested XRef components.
+- **Travel-Through Mode**: New mode to navigate through locked parent XRefs to edit children.
+- **Recursive Updates**: Fixed infinite loop when updating nested components.
+- **Relink Dialog**: Now prefills the current filename for easier replacement.
+- **Bug Fixes**: Critical fixes for nested locking, permission persistence, and UI stability.
 
 ### Version 1.5.0
 **New Features:**

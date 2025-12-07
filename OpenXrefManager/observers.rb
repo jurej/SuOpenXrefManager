@@ -30,7 +30,8 @@ module OpenXrefManager
 
       # Determine if the instance should be forced back to a locked state
       # Re-lock if it's locked by someone else OR if an update is available.
-      should_be_locked = (is_locked_by_file && !is_mine_in_this_window) || update_available
+      # BUT: Don't lock if travel-through mode is enabled (allows entry to nested XRefs)
+      should_be_locked = ((is_locked_by_file && !is_mine_in_this_window) || update_available) && !OpenXrefManager.is_travel_through_enabled?(definition)
       
       if should_be_locked
         # Use a short timer to avoid issues with modifying the model during a notification.
@@ -79,6 +80,7 @@ module OpenXrefManager
       # find all lock files owned by this user from the previous session state and update them.
       if @guid_before_save != new_guid
         OpenXrefManager.update_owned_lock_files(@guid_before_save, new_guid)
+        OpenXrefManager.update_travel_through_guids(@guid_before_save, new_guid)
         @guid_before_save = new_guid # Update the stored GUID for the next save.
       end
 
@@ -89,12 +91,105 @@ module OpenXrefManager
     
     # Handles auto-checkout when a user starts editing an XRef.
     def onActivePathChanged(model)
-      return unless model.active_path # Path is nil when exiting to top level.
+      # Clear travel-through active state when exiting to top level
+      if model.active_path.nil?
+        travel_through_active = OpenXrefManager.instance_variable_get(:@travel_through_active)
+        if travel_through_active
+          travel_through_active.clear
+        end
+        return
+      end
+      
       instance = model.active_path.last
       return unless instance.is_a?(Sketchup::ComponentInstance)
       
       definition = instance.definition
       return unless OpenXrefManager.is_xref?(definition)
+      
+      # Check if travel-through is enabled for this XRef OR any parent in the path
+      # This handles both entering and navigating within travel-through mode (including exiting child XRefs)
+      travel_through_enabled_for_current = OpenXrefManager.is_travel_through_enabled?(definition)
+      
+      # Also check if any parent in the path has travel-through enabled
+      travel_through_enabled_for_parent = false
+      model.active_path.each do |path_instance|
+        next unless path_instance.is_a?(Sketchup::ComponentInstance)
+        parent_def = path_instance.definition
+        if OpenXrefManager.is_xref?(parent_def) && parent_def != definition && OpenXrefManager.is_travel_through_enabled?(parent_def)
+          travel_through_enabled_for_parent = true
+          break
+        end
+      end
+      
+      # Handle travel-through scenarios
+      if travel_through_enabled_for_parent
+        # Case A: We are inside a child, but a parent further up has travel-through enabled.
+        # We need to mark the parent as active in the session state for navigation tracking.
+        travel_through_active = OpenXrefManager.instance_variable_get(:@travel_through_active)
+        if travel_through_active.nil?
+          travel_through_active = {}
+          OpenXrefManager.instance_variable_set(:@travel_through_active, travel_through_active)
+        end
+        
+        # Find which parent has travel-through enabled
+        model.active_path.each do |path_instance|
+          next unless path_instance.is_a?(Sketchup::ComponentInstance)
+          parent_def = path_instance.definition
+          if OpenXrefManager.is_xref?(parent_def) && parent_def != definition && OpenXrefManager.is_travel_through_enabled?(parent_def)
+            travel_through_active[parent_def.name] = true
+            Sketchup.set_status_text("Travel-through mode: Navigating within '#{parent_def.name}'. Parent cannot be saved.")
+            break 
+          end
+        end
+        # IMPORTANT: Do NOT return here. We must proceed to verify standard lock checks for the CURRENT nested definition.
+      
+      elsif travel_through_enabled_for_current
+         # Case B: We are entering (or exiting back into) the XRef that has travel-through ENABLED (The Parent).
+         # We allow this unconditionally (bypassing lock checks) because that is the purpose of the feature.
+         
+         travel_through_active = OpenXrefManager.instance_variable_get(:@travel_through_active)
+         if travel_through_active.nil?
+           travel_through_active = {}
+           OpenXrefManager.instance_variable_set(:@travel_through_active, travel_through_active)
+         end
+         travel_through_active[definition.name] = true
+         
+         # Check if there are nested XRefs (Sanity check)
+         nested_xrefs = OpenXrefManager.find_nested_xrefs(definition)
+         if nested_xrefs.empty?
+           UI.start_timer(0.1, false) do
+             UI.messagebox("Travel-through mode is enabled, but '#{definition.name}' does not contain any nested XRefs.")
+             model.close_active if model.active_path
+           end
+           return
+         end
+         
+         Sketchup.set_status_text("Travel-through mode: You can navigate to nested XRefs in '#{definition.name}'. Parent cannot be saved.")
+         return # Allow entry/navigation - skip lock checks
+      end
+      
+      # Check if we're in travel-through mode for a parent XRef (for nested XRefs)
+      travel_through_active = OpenXrefManager.instance_variable_get(:@travel_through_active) || {}
+      parent_in_travel_through = nil
+      
+      # Check if any parent in the path is in travel-through mode
+      model.active_path.each do |path_instance|
+        next unless path_instance.is_a?(Sketchup::ComponentInstance)
+        parent_def = path_instance.definition
+        if OpenXrefManager.is_xref?(parent_def) && travel_through_active[parent_def.name]
+          parent_in_travel_through = parent_def
+          break
+        end
+      end
+      
+      # If we're editing the parent that's in travel-through mode, prevent editing
+      if parent_in_travel_through && definition == parent_in_travel_through
+        UI.start_timer(0.1, false) do
+          UI.messagebox("You are in travel-through mode for '#{definition.name}'.\n\nNavigate to a nested XRef to edit it. The parent XRef cannot be edited while in travel-through mode.")
+          model.close_active if model.active_path
+        end
+        return
+      end
       
       # Prevent editing if an update is available and it's locked by someone else.
       update_available = OpenXrefManager._is_update_available?(definition)
@@ -124,8 +219,31 @@ module OpenXrefManager
         is_mine_elsewhere = (lock_owner_name == OpenXrefManager.instance_variable_get(:@user_name) && lock_owner_guid != model.guid)
       end
 
-      # If locked by someone else (not us), prevent editing
+      # Check if travel-through is enabled (works for both locked by others and locked by same user elsewhere)
+      # This handles initial entry into travel-through mode
+      if (is_locked_by_other || is_mine_elsewhere) && OpenXrefManager.is_travel_through_enabled?(definition)
+        # Travel-through is enabled - allow entry but mark as travel-through mode
+        OpenXrefManager.instance_variable_set(:@travel_through_active, {}) unless OpenXrefManager.instance_variable_get(:@travel_through_active)
+        OpenXrefManager.instance_variable_get(:@travel_through_active)[definition.guid] = true
+        
+        # Check if there are nested XRefs
+        nested_xrefs = OpenXrefManager.find_nested_xrefs(definition)
+        if nested_xrefs.empty?
+          UI.start_timer(0.1, false) do
+            UI.messagebox("Travel-through mode is enabled, but '#{definition.name}' does not contain any nested XRefs.")
+            model.close_active if model.active_path
+          end
+          return
+        end
+        
+        # Allow entry - user can navigate to nested XRefs
+        Sketchup.set_status_text("Travel-through mode: You can navigate to nested XRefs in '#{definition.name}'. Parent cannot be saved.")
+        return # Allow entry
+      end
+
+      # If locked by someone else (not us), prevent entry (unless travel-through was already handled above)
       if is_locked_by_other
+        # Normal lock check - prevent entry
         UI.start_timer(0.1, false) do
           lock_owner_name, _, lock_model_name, _ = lock_content.split('|')
           lock_model_name ||= "an unsaved model"
@@ -139,7 +257,8 @@ module OpenXrefManager
       auto_checkout_enabled = OpenXrefManager.get_auto_checkout_setting
       
       # If the component is available or locked by us elsewhere, handle checkout based on settings
-      if is_unlocked || is_mine_elsewhere
+      # Force prompt if we are in travel-through mode (nested navigation) to ensure users don't miss checkout
+      if is_unlocked || is_mine_elsewhere || travel_through_enabled_for_parent
         if auto_checkout_enabled
           # Auto-checkout enabled: prompt to check it out
           UI.start_timer(0.1, false) do

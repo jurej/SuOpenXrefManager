@@ -44,6 +44,60 @@ module OpenXrefManager
     !definition.attribute_dictionary(XREF_DICT_NAME).nil?
   end
 
+  # Recursively finds all XRef definitions nested inside a given definition.
+  # @param definition [Sketchup::ComponentDefinition] The definition to search
+  # @return [Array<Sketchup::ComponentDefinition>] Array of nested XRef definitions
+  def self.find_nested_xrefs(definition)
+    return [] unless definition && definition.valid?
+    nested = []
+    
+    definition.entities.each do |entity|
+      if entity.is_a?(Sketchup::ComponentInstance)
+        child_def = entity.definition
+        nested << child_def if is_xref?(child_def)
+        # Recursively check nested components
+        nested.concat(find_nested_xrefs(child_def))
+      elsif entity.is_a?(Sketchup::Group)
+        # Groups can contain components too - check the group's entities
+        entity.entities.each do |group_entity|
+          if group_entity.is_a?(Sketchup::ComponentInstance)
+            child_def = group_entity.definition
+            nested << child_def if is_xref?(child_def)
+            nested.concat(find_nested_xrefs(child_def))
+          end
+        end
+      end
+    end
+    
+    nested.uniq
+  end
+
+  # Finds all XRef definitions that contain the given child definition.
+  # @param child_definition [Sketchup::ComponentDefinition] The child XRef to find parents for
+  # @return [Array<Sketchup::ComponentDefinition>] Array of parent XRef definitions
+  def self.find_parent_xrefs_containing(child_definition)
+    return [] unless child_definition && child_definition.valid?
+    return [] unless is_xref?(child_definition)
+    
+    model = child_definition.model
+    return [] unless model
+    
+    parent_xrefs = []
+    
+    # Check all XRef definitions in the model
+    get_xref_definitions.each do |parent_def|
+      next if parent_def == child_definition
+      
+      # Check if this parent contains the child
+      nested_xrefs = find_nested_xrefs(parent_def)
+      if nested_xrefs.include?(child_definition)
+        parent_xrefs << parent_def
+      end
+    end
+    
+    parent_xrefs
+  end
+
   # Checks if a given XRef definition has a newer version available on disk.
   def self._is_update_available?(definition)
     path = resolve_xref_path(definition)
@@ -55,7 +109,11 @@ module OpenXrefManager
     current_file_timestamp = File.mtime(path).to_i
     
     # If file on disk is newer than stored timestamp, update is available.
-    return current_file_timestamp > stored_timestamp
+    if current_file_timestamp > stored_timestamp
+      return true
+    end
+    
+    return false
   end
 
   # Reads the lock file for a given XRef and returns its content (owner|guid).
@@ -174,7 +232,26 @@ module OpenXrefManager
     definition = model.definitions.find { |d| d.name == component_name }
     return unless definition
 
-    path = UI.openpanel("Relink XRef File", "", "*.skp")
+    # Prevent relink if travel-through mode is enabled
+    if is_travel_through_enabled?(definition)
+      UI.messagebox("Cannot relink: Travel-through mode is active for '#{component_name}'. Disable travel-through mode first.\n\nRelinking would reload the XRef and break the travel-through workflow.")
+      return
+    end
+
+    current_path = resolve_xref_path(definition)
+    directory = ""
+    filename = "SketchUp Files|*.skp||" # Default filter if no path
+    
+    if current_path
+      # Standardize to backslashes for Windows UI consistency
+      sys_path = current_path.gsub("/", "\\")
+      directory = File.dirname(sys_path)
+      name = File.basename(sys_path)
+      # Use the specific filename if we have one
+      filename = name unless name.empty?
+    end
+
+    path = UI.openpanel("Relink XRef File", directory, filename)
     return unless path
     
     # Update path
@@ -229,6 +306,12 @@ module OpenXrefManager
     model = Sketchup.active_model
     definition = model.definitions.find { |d| d.name == component_name }
     return unless definition
+    
+    # Prevent force unlock if travel-through mode is enabled
+    if is_travel_through_enabled?(definition)
+      UI.messagebox("Cannot force unlock: Travel-through mode is active for '#{component_name}'. Disable travel-through mode first.")
+      return
+    end
     
     path = self.resolve_xref_path(definition)
     return unless path
@@ -315,6 +398,34 @@ module OpenXrefManager
   def self._silent_save_and_check_in(definition, keep_locked: false)
     path = self.resolve_xref_path(definition)
     return false unless path
+    
+    # Check if travel-through is active for this XRef (prevent saving parent in travel-through mode)
+    travel_through_active = @travel_through_active || {}
+    if travel_through_active[definition.guid]
+      UI.messagebox("Cannot save '#{definition.name}': You are in travel-through mode. Only nested XRefs can be edited and saved.")
+      return false
+    end
+    
+    # Check if nested XRefs have updates before saving
+    nested_xrefs = find_nested_xrefs(definition)
+    updated_nested = []
+    nested_xrefs.each do |nested_def|
+      if _is_update_available?(nested_def)
+        updated_nested << nested_def.name
+      end
+    end
+    
+    if !updated_nested.empty?
+      message = "Warning: '#{definition.name}' contains nested XRefs that have been updated:\n\n"
+      message += updated_nested.join("\n")
+      message += "\n\nSaving now will include the old versions. Reload the nested XRefs first?"
+      result = UI.messagebox(message, MB_YESNO)
+      if result == IDYES
+        # User wants to reload first - abort save
+        return false
+      end
+    end
+    
     begin
       definition.save_as(path)
       self._update_xref_timestamp(definition)
@@ -405,7 +516,41 @@ module OpenXrefManager
       operation_name = keep_locked ? "Save XRef" : "Save & Check In XRef"
       model.start_operation(operation_name, true)
       was_editing = model.active_path && model.active_path.any? { |instance| instance.definition == definition }
-      self._silent_save_and_check_in(definition, keep_locked: keep_locked)
+      success = self._silent_save_and_check_in(definition, keep_locked: keep_locked)
+      
+      if success
+        # After saving a nested XRef, mark parent XRefs as needing update
+        parent_xrefs = find_parent_xrefs_containing(definition)
+        parent_xrefs.each do |parent_def|
+          # Invalidate the parent's status cache so it will be re-checked
+          @last_xref_statuses.delete(parent_def.guid)
+          
+          # The enhanced _is_update_available? will now detect nested XRef updates
+          # Force a status check for this parent
+          update_available = _is_update_available?(parent_def)
+          lock_content = get_xref_lock_status(parent_def)
+          
+          # Update the status cache
+          @last_xref_statuses[parent_def.guid] = {
+            lock_content: lock_content,
+            update_available: update_available
+          }
+          
+          # Lock instances if update is available (unless travel-through is enabled)
+          if update_available && !is_travel_through_enabled?(parent_def)
+            lock_or_unlock_instances_for_definition(parent_def, true)
+          end
+        end
+        
+        if !parent_xrefs.empty?
+          parent_names = parent_xrefs.map { |d| d.name }.join(", ")
+          Sketchup.set_status_text("'#{component_name}' saved. Parent XRef(s) '#{parent_names}' need to be reloaded.")
+        end
+        
+        # Refresh status to show parent updates
+        self.check_for_status_changes(show_notification: false)
+      end
+      
       model.close_active if was_editing
       model.commit_operation
       self.check_for_status_changes(show_notification: false)
@@ -421,8 +566,22 @@ module OpenXrefManager
     definition = model.definitions.find { |d| d.name == component_name }
     return unless definition
 
+    # Prevent force check-in if travel-through mode is enabled
+    if is_travel_through_enabled?(definition)
+      UI.messagebox("Cannot force check-in: Travel-through mode is active for '#{component_name}'. Disable travel-through mode first.")
+      return
+    end
+
     lock_content = self.get_xref_lock_status(definition)
-    lock_owner_name, _ = lock_content.split('|')
+    
+    # Check if locked by another user - prevent force check-in
+    if lock_content == "unlocked"
+      UI.messagebox("'#{component_name}' is not checked out. No need to force check-in.")
+      return
+    end
+    
+    lock_owner_name, lock_owner_guid, lock_model_name, _ = lock_content.split('|')
+    lock_model_name ||= "an unsaved model"
 
     if lock_owner_name == @user_name
       question = "This XRef appears to be checked out by you in another session or window.\n\n" +
@@ -436,7 +595,8 @@ module OpenXrefManager
       model.commit_operation
       self.check_for_status_changes(show_notification: false)
     else
-      UI.beep
+      # Another user has it locked - cannot force check-in
+      UI.messagebox("Cannot force check-in: '#{component_name}' is checked out by #{lock_owner_name} in '#{lock_model_name}'.\n\nOnly the user who has it checked out can check it in.")
     end
     self.refresh_dialog_data
   end
@@ -516,6 +676,15 @@ module OpenXrefManager
 
   # Reloads a single XRef after confirming with the user.
   def self.reload_single_xref(component_name, suppress_warning: false)
+    model = Sketchup.active_model
+    definition = model.definitions.find { |d| d.name == component_name }
+    
+    # Prevent reload if travel-through mode is enabled
+    if definition && is_travel_through_enabled?(definition)
+      UI.messagebox("Cannot reload: Travel-through mode is active for '#{component_name}'. Disable travel-through mode first.\n\nReloading would replace the XRef and break the travel-through workflow.")
+      return
+    end
+    
     if !suppress_warning
       question = "Reloading '#{component_name}' will discard any changes made to it in the current model.\n\n" +
                  "Are you sure you want to continue?"
@@ -532,6 +701,12 @@ module OpenXrefManager
     model = Sketchup.active_model
     definition = model.definitions.find { |d| d.name == component_name }
     return unless definition
+    
+    # Prevent unlink if travel-through mode is enabled
+    if is_travel_through_enabled?(definition)
+      UI.messagebox("Cannot unlink: Travel-through mode is active for '#{component_name}'. Disable travel-through mode first.\n\nUnlinking would break the XRef hierarchy and make nested XRefs inaccessible.")
+      return
+    end
     
     # Check for uncommitted changes and ask if user wants to publish first
     return unless self.ask_publish_before_operation?(component_name, "unlink this XRef")
@@ -602,6 +777,12 @@ module OpenXrefManager
     model = Sketchup.active_model
     definition = model.definitions.find { |d| d.name == component_name }
     return unless definition
+    
+    # Prevent unload if travel-through mode is enabled
+    if is_travel_through_enabled?(definition)
+      UI.messagebox("Cannot unload: Travel-through mode is active for '#{component_name}'. Disable travel-through mode first.\n\nUnloading would remove nested XRefs and break the travel-through workflow.")
+      return
+    end
     
     # Check for uncommitted changes and ask if user wants to publish first
     return unless self.ask_publish_before_operation?(component_name, "unload this XRef")
@@ -685,6 +866,17 @@ module OpenXrefManager
     
     success = false
     begin
+      # Before reloading, identify and store current nested XRef definitions
+      # so we can preserve them after reload (don't overwrite with versions from parent file)
+      nested_xrefs_before = find_nested_xrefs(original_definition)
+      nested_xref_map = {} # Map of child XRef path => current definition reference
+      nested_xrefs_before.each do |nested_def|
+        nested_path = resolve_xref_path(nested_def)
+        if nested_path
+          nested_xref_map[nested_path] = nested_def
+        end
+      end
+      
       reloaded_definition = model.definitions.load(path)
       
       if reloaded_definition && reloaded_definition != original_definition
@@ -709,6 +901,44 @@ module OpenXrefManager
         reloaded_definition.set_attribute(XREF_DICT_NAME, XREF_UNLOADED_KEY, false)
         # Clear the edited_without_lock flag when reloading
         reloaded_definition.set_attribute(XREF_DICT_NAME, XREF_EDITED_WITHOUT_LOCK_KEY, false)
+        
+        # Preserve nested XRef definitions - don't overwrite with versions from parent file
+        if !nested_xref_map.empty?
+          # Find nested XRefs that came from the reloaded parent file
+          nested_xrefs_after = find_nested_xrefs(reloaded_definition)
+          
+          nested_xrefs_after.each do |nested_from_file|
+            # Match by XRef path (not GUID, since loaded definitions have different GUIDs)
+            nested_path_from_file = resolve_xref_path(nested_from_file)
+            current_nested = nested_path_from_file ? nested_xref_map[nested_path_from_file] : nil
+            
+            if current_nested && current_nested.valid? && is_xref?(current_nested)
+              # We have a current version - replace the one from the file with the current one
+              # Update all instances in the reloaded parent to point to the current child definition
+              reloaded_definition.entities.each do |entity|
+                if entity.is_a?(Sketchup::ComponentInstance) && entity.definition == nested_from_file
+                  entity.definition = current_nested
+                elsif entity.is_a?(Sketchup::Group)
+                  # Check groups too - recursively
+                  entity.entities.each do |group_entity|
+                    if group_entity.is_a?(Sketchup::ComponentInstance) && group_entity.definition == nested_from_file
+                      group_entity.definition = current_nested
+                    elsif group_entity.is_a?(Sketchup::Group)
+                      # Handle nested groups
+                      group_entity.entities.each do |nested_group_entity|
+                        if nested_group_entity.is_a?(Sketchup::ComponentInstance) && nested_group_entity.definition == nested_from_file
+                          nested_group_entity.definition = current_nested
+                        end
+                      end
+                    end
+                  end
+                end
+              end
+              
+              # The nested definition from the file will be purged if unused
+            end
+          end
+        end
         
         # Remove XRef attributes from the OLD definition so it's
         # no longer tracked and can be purged.
@@ -778,6 +1008,153 @@ module OpenXrefManager
       rescue => e
         puts "Could not update lock file #{lock_path}: #{e.message}"
       end
+    end
+  end
+
+  # --- Travel-Through Mode Functions ---
+
+  # Enables travel-through mode for a given XRef, allowing entry into locked XRefs to reach nested XRefs.
+  # @param component_name [String] Name of the component
+  def self.enable_travel_through(component_name)
+    model = Sketchup.active_model
+    return unless model
+    
+    definition = model.definitions.find { |d| d.name == component_name }
+    return unless definition && is_xref?(definition)
+    
+    # Check if there are nested XRefs
+    nested_xrefs = find_nested_xrefs(definition)
+    if nested_xrefs.empty?
+      UI.messagebox("'#{component_name}' does not contain any nested XRefs.")
+      return
+    end
+    
+    # Store travel-through state in model attributes
+    # SketchUp attributes need to store simple types, so we'll use JSON for the nested hash
+    require 'json'
+    travel_through_json = model.get_attribute(SETTINGS_DICT_NAME, SETTINGS_TRAVEL_THROUGH_XREFS_KEY)
+    travel_through = {}
+    if travel_through_json && !travel_through_json.empty?
+      begin
+        travel_through = JSON.parse(travel_through_json)
+      rescue
+        travel_through = {}
+      end
+    end
+    
+    # Use definition name as key because GUID changes when component content is modified (e.g. nested edit)
+    key = definition.name
+    travel_through[key] = {
+      "user" => @user_name,
+      "model_guid" => model.guid.to_s,
+      "enabled_at" => Time.now.to_i
+    }
+    model.set_attribute(SETTINGS_DICT_NAME, SETTINGS_TRAVEL_THROUGH_XREFS_KEY, travel_through.to_json)
+    
+    # Unlock instances to allow entry (even though XRef is locked by someone else)
+    self.lock_or_unlock_instances_for_definition(definition, false)
+    
+    self.refresh_dialog_data
+    Sketchup.set_status_text("Travel-through mode enabled for '#{component_name}'. You can now enter to edit nested XRefs.")
+  end
+
+  # Disables travel-through mode for a given XRef.
+  # @param component_name [String] Name of the component
+  def self.disable_travel_through(component_name)
+    model = Sketchup.active_model
+    return unless model
+    
+    definition = model.definitions.find { |d| d.name == component_name }
+    return unless definition
+    
+    require 'json'
+    travel_through_json = model.get_attribute(SETTINGS_DICT_NAME, SETTINGS_TRAVEL_THROUGH_XREFS_KEY)
+    travel_through = {}
+    if travel_through_json && !travel_through_json.empty?
+      begin
+        travel_through = JSON.parse(travel_through_json)
+      rescue
+        travel_through = {}
+      end
+    end
+    
+    # Use definition name as key
+    key = definition.name
+    travel_through.delete(key)
+    model.set_attribute(SETTINGS_DICT_NAME, SETTINGS_TRAVEL_THROUGH_XREFS_KEY, travel_through.to_json)
+    
+    # Clear active travel-through state
+    @travel_through_active.delete(definition.name) if @travel_through_active
+    
+    # Re-lock instances if XRef is still locked by someone else
+    lock_content = get_xref_lock_status(definition)
+    is_locked = lock_content != "unlocked"
+    if is_locked
+      lock_owner_name, lock_owner_guid, _, _ = lock_content.split('|')
+      is_mine_in_this_window = (lock_owner_name == @user_name && lock_owner_guid == model.guid)
+      if !is_mine_in_this_window
+        # Locked by someone else - re-lock instances
+        self.lock_or_unlock_instances_for_definition(definition, true)
+      end
+    end
+    
+    self.refresh_dialog_data
+    Sketchup.set_status_text("Travel-through mode disabled for '#{component_name}'.")
+  end
+
+  # Checks if travel-through mode is enabled for a given XRef in the current model.
+  # @param definition [Sketchup::ComponentDefinition] The XRef definition to check
+  # @return [Boolean] True if travel-through is enabled for this user in this model
+  def self.is_travel_through_enabled?(definition)
+    return false unless definition && definition.valid?
+    
+    model = definition.model
+    return false unless model
+    
+    require 'json'
+    travel_through_json = model.get_attribute(SETTINGS_DICT_NAME, SETTINGS_TRAVEL_THROUGH_XREFS_KEY)
+    return false unless travel_through_json && !travel_through_json.empty?
+    
+    begin
+      travel_through = JSON.parse(travel_through_json)
+    rescue
+      return false
+    end
+    
+    # Use definition name as key
+    key = definition.name
+    travel_through_info = travel_through[key]
+    return false unless travel_through_info
+    
+    # Check if it's enabled for this user in this model
+    travel_through_info["user"] == @user_name && travel_through_info["model_guid"] == model.guid.to_s
+  end
+
+  # Updates the model_guid in travel-through settings after a model save.
+  # This ensures the permission remains valid even though the model GUID changed.
+  def self.update_travel_through_guids(old_guid, new_guid)
+    model = Sketchup.active_model
+    return unless model
+    
+    travel_through_json = model.get_attribute(SETTINGS_DICT_NAME, SETTINGS_TRAVEL_THROUGH_XREFS_KEY)
+    return unless travel_through_json && !travel_through_json.empty?
+    
+    begin
+      travel_through = JSON.parse(travel_through_json)
+      updated = false
+      
+      travel_through.each do |key, info|
+        if info["user"] == @user_name && info["model_guid"] == old_guid
+          info["model_guid"] = new_guid
+          updated = true
+        end
+      end
+      
+      if updated
+        model.set_attribute(SETTINGS_DICT_NAME, SETTINGS_TRAVEL_THROUGH_XREFS_KEY, travel_through.to_json)
+      end
+    rescue => e
+      puts "OpenXrefManager: Failed to update travel-through GUIDs: #{e.message}"
     end
   end
 

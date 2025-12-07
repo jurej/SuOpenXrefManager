@@ -133,7 +133,8 @@
       <button id="settings-button" class="btn btn-outline-secondary btn-sm ml-2" title="XRef Manager Settings">
         <i class="material-icons">settings</i> Settings
       </button>
-      <button id="pause-monitoring-button" class="btn btn-outline-secondary btn-sm ml-2" title="Pause background monitoring">
+      <button id="pause-monitoring-button" class="btn btn-outline-secondary btn-sm ml-2"
+        title="Pause background monitoring">
         <i class="material-icons">pause</i> Pause Monitoring
       </button>
       <button id="reload-all-button" class="btn btn-outline-secondary btn-sm ml-2" title="Reload All XRefs">
@@ -214,7 +215,7 @@
     const importOriginButton = document.getElementById('import-origin-button');
     const importPlaceButton = document.getElementById('import-place-button');
     const createXrefButton = document.getElementById('create-xref-button');
-    
+
     let monitoringPaused = false;
 
     function formatTimestamp(unix_timestamp) {
@@ -372,13 +373,28 @@
         if (xref.is_locked) {
           switch (xref.status_key) {
             case 'mine':
-              lockButton = `<button class="btn btn-primary btn-sm" title="Save & Check In" onclick="sketchup.save_and_check_in_clicked('${xref.name}')"><i class="material-icons">save_as</i></button>`;
+              // Disable save if travel-through is active
+              if (xref.travel_through_enabled) {
+                lockButton = `<button class="btn btn-secondary btn-sm" title="Cannot save: Travel-through mode is active" disabled><i class="material-icons">save_as</i></button>`;
+              } else {
+                lockButton = `<button class="btn btn-primary btn-sm" title="Save & Check In" onclick="sketchup.save_and_check_in_clicked('${xref.name}')"><i class="material-icons">save_as</i></button>`;
+              }
               break;
             case 'mine_elsewhere':
-              lockButton = `<button class="btn btn-info btn-sm" title="Force Check In" onclick="sketchup.force_check_in_clicked('${xref.name}')"><i class="material-icons">lock</i></button>`;
+              // Disable force check-in if travel-through is active
+              if (xref.travel_through_enabled) {
+                lockButton = `<button class="btn btn-secondary btn-sm" title="Cannot force check-in: Travel-through mode is active" disabled><i class="material-icons">lock</i></button>`;
+              } else {
+                lockButton = `<button class="btn btn-info btn-sm" title="Force Check In" onclick="sketchup.force_check_in_clicked('${xref.name}')"><i class="material-icons">lock</i></button>`;
+              }
               break;
             case 'locked':
-              lockButton = `<button class="btn btn-info btn-sm" title="Force Unlock" onclick="handleForceUnlockClick('${xref.name}')"><i class="material-icons">no_encryption</i></button>`;
+              // Disable force unlock if travel-through is active
+              if (xref.travel_through_enabled) {
+                lockButton = `<button class="btn btn-secondary btn-sm" title="Cannot force unlock: Travel-through mode is active" disabled><i class="material-icons">no_encryption</i></button>`;
+              } else {
+                lockButton = `<button class="btn btn-info btn-sm" title="Force Unlock" onclick="handleForceUnlockClick('${xref.name}')"><i class="material-icons">no_encryption</i></button>`;
+              }
               break;
             default:
               lockButton = `<button class="btn btn-info btn-sm" disabled><i class="material-icons">lock</i></button>`;
@@ -395,14 +411,21 @@
         // Column 2: Update/Relink
         let updateButton = '';
         if (xref.update_available) {
-          // Disable Update button if XRef is unloaded
+          // Disable Update button if XRef is unloaded or travel-through is active
           if (xref.is_unloaded) {
             updateButton = `<button class="btn btn-secondary btn-sm" title="Reload XRef first to update" disabled><i class="material-icons">update</i></button>`;
+          } else if (xref.travel_through_enabled) {
+            updateButton = `<button class="btn btn-secondary btn-sm" title="Cannot update: Travel-through mode is active" disabled><i class="material-icons">update</i></button>`;
           } else {
             updateButton = `<button class="btn btn-danger btn-sm" title="Update File..." onclick="sketchup.reload_single_clicked('${xref.name}', true)"><i class="material-icons">update</i></button>`;
           }
         } else {
-          updateButton = `<button class="btn btn-info btn-sm" title="Replace/Relink File..." onclick="sketchup.relink_clicked('${xref.name}')"><i class="material-icons">link</i></button>`;
+          // Disable Relink button if travel-through is active
+          if (xref.travel_through_enabled) {
+            updateButton = `<button class="btn btn-secondary btn-sm" title="Cannot relink: Travel-through mode is active" disabled><i class="material-icons">link</i></button>`;
+          } else {
+            updateButton = `<button class="btn btn-info btn-sm" title="Replace/Relink File..." onclick="sketchup.relink_clicked('${xref.name}')"><i class="material-icons">link</i></button>`;
+          }
         }
 
         // Column 3: Load/Unload
@@ -411,16 +434,41 @@
           if (xref.is_unloaded) {
             loadButton = `<button class="btn btn-info btn-sm" title="Reload XRef" onclick="sketchup.reload_single_clicked('${xref.name}')"><i class="material-icons">sync</i></button>`;
           } else {
-            loadButton = `<button class="btn btn-info btn-sm" title="Unload XRef" onclick="handleUnloadClick('${xref.name}')"><i class="material-icons">visibility_off</i></button>`;
+            // Disable unload if travel-through is active
+            if (xref.travel_through_enabled) {
+              loadButton = `<button class="btn btn-secondary btn-sm" title="Cannot unload: Travel-through mode is active" disabled><i class="material-icons">visibility_off</i></button>`;
+            } else {
+              loadButton = `<button class="btn btn-info btn-sm" title="Unload XRef" onclick="handleUnloadClick('${xref.name}')"><i class="material-icons">visibility_off</i></button>`;
+            }
           }
         } else {
           loadButton = `<button class="btn btn-secondary btn-sm" disabled><i class="material-icons">sync_disabled</i></button>`;
         }
 
         // Column 4: Unlink
-        const unlinkButton = `<button class="btn btn-info btn-sm" title="Unlink" onclick="handleUnlinkClick('${xref.name}')"><i class="material-icons">link_off</i></button>`;
+        // Disable unlink if travel-through is active
+        let unlinkButton = '';
+        if (xref.travel_through_enabled) {
+          unlinkButton = `<button class="btn btn-secondary btn-sm" title="Cannot unlink: Travel-through mode is active" disabled><i class="material-icons">link_off</i></button>`;
+        } else {
+          unlinkButton = `<button class="btn btn-info btn-sm" title="Unlink" onclick="handleUnlinkClick('${xref.name}')"><i class="material-icons">link_off</i></button>`;
+        }
 
-        actionsCell.innerHTML = lockButton + updateButton + loadButton + unlinkButton;
+        // Column 5: Travel-Through (show if has nested XRefs and is locked - available to all users)
+        let travelThroughButton = '';
+        // Show travel-through button for any locked XRef with nested XRefs (locked by anyone)
+        // OR if travel-through is currently enabled (so the user can disable it even if the file became unlocked)
+        if (xref.has_nested_xrefs && (xref.is_locked || xref.travel_through_enabled)) {
+          // Escape the name for use in HTML attribute - handle both single and double quotes
+          const escapedName = xref.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+          if (xref.travel_through_enabled) {
+            travelThroughButton = `<button class="btn btn-warning btn-sm" title="Disable Travel-Through Mode" onclick="handleDisableTravelThroughClick('${escapedName}')"><i class="material-icons">exit_to_app</i></button>`;
+          } else {
+            travelThroughButton = `<button class="btn btn-info btn-sm" title="Enable Travel-Through Mode (allows editing nested XRefs)" onclick="handleEnableTravelThroughClick('${escapedName}')"><i class="material-icons">subdirectory_arrow_right</i></button>`;
+          }
+        }
+
+        actionsCell.innerHTML = lockButton + updateButton + loadButton + unlinkButton + travelThroughButton;
         row.appendChild(actionsCell);
 
         listBody.appendChild(row);
@@ -451,6 +499,32 @@
       if (sketchup) { sketchup.force_unlock_clicked(name); }
     }
 
+    function handleEnableTravelThroughClick(name) {
+      console.log('Enable travel-through clicked for:', name);
+      if (sketchup) {
+        try {
+          sketchup.enable_travel_through_clicked(name);
+        } catch (e) {
+          console.error('Error calling enable_travel_through_clicked:', e);
+        }
+      } else {
+        console.error('sketchup object not available');
+      }
+    }
+
+    function handleDisableTravelThroughClick(name) {
+      console.log('Disable travel-through clicked for:', name);
+      if (sketchup) {
+        try {
+          sketchup.disable_travel_through_clicked(name);
+        } catch (e) {
+          console.error('Error calling disable_travel_through_clicked:', e);
+        }
+      } else {
+        console.error('sketchup object not available');
+      }
+    }
+
     closeButton.onclick = function () { if (sketchup) { sketchup.close_dialog(); } };
     publishAllButton.onclick = function () {
       if (sketchup) {
@@ -479,7 +553,7 @@
 
     pauseMonitoringButton.onclick = function () {
       monitoringPaused = !monitoringPaused;
-      if (sketchup) { 
+      if (sketchup) {
         if (monitoringPaused) {
           sketchup.pause_monitoring_clicked();
           pauseMonitoringButton.innerHTML = '<i class="material-icons">play_arrow</i> Resume Monitoring';
@@ -533,7 +607,7 @@
 
     window.addEventListener('DOMContentLoaded', function () {
       // Request saved checkbox preference and monitoring state
-      if (sketchup) { 
+      if (sketchup) {
         sketchup.get_keep_locked_preference();
         sketchup.get_monitoring_state();
       }

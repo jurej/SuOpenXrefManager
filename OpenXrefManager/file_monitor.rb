@@ -120,7 +120,8 @@ module OpenXrefManager
          # We should lock instances if:
          # 1. It is locked by someone else (or us in another window)
          # 2. OR an update is available (force user to update before editing)
-         should_be_locked = (is_locked_by_file && !is_mine_in_this_window) || current_update_available
+         # BUT: Don't lock if travel-through mode is enabled (allows entry to nested XRefs)
+         should_be_locked = ((is_locked_by_file && !is_mine_in_this_window) || current_update_available) && !is_travel_through_enabled?(definition)
          
          lock_or_unlock_instances_for_definition(definition, should_be_locked)
       end
