@@ -610,7 +610,7 @@ module OpenXrefManager
     
     model.start_operation("Import as XRef", true)
     begin
-      new_definition = model.definitions.load(path)
+      new_definition = model.definitions.load(path, allow_newer: true)
       self._set_xref_path(new_definition, path, ask_user: true)
       self._update_xref_timestamp(new_definition)
       model.place_component(new_definition, true)
@@ -629,7 +629,7 @@ module OpenXrefManager
     return unless path
     model.start_operation("Import XRef at Origin", true)
     begin
-      new_definition = model.definitions.load(path)
+      new_definition = model.definitions.load(path, allow_newer: true)
       self._set_xref_path(new_definition, path, ask_user: true)
       self._update_xref_timestamp(new_definition)
       model.entities.add_instance(new_definition, Geom::Transformation.new)
@@ -877,7 +877,7 @@ module OpenXrefManager
         end
       end
       
-      reloaded_definition = model.definitions.load(path)
+      reloaded_definition = model.definitions.load(path, allow_newer: true)
       
       if reloaded_definition && reloaded_definition != original_definition
         
@@ -979,6 +979,8 @@ module OpenXrefManager
     return success
   end
   
+  # Finds all lock files owned by the current user with a specific (old) model GUID
+  # and updates them with the new GUID. This is crucial for when a model is saved for the first time.
   # Finds all lock files owned by the current user with a specific (old) model GUID
   # and updates them with the new GUID. This is crucial for when a model is saved for the first time.
   def self.update_owned_lock_files(old_guid, new_guid)

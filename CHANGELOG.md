@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.6.1] - 2025-12-11
+
+### Fixed
+- **Save As Status Issue:** Fixed a bug where using "Save As" on the main model caused XRefs to report "Checked out (You, elsewhere)" due to lock files being associated with the old model GUID.
+- **Newer Version Loading:** Added `allow_newer: true` to XRef loading to support importing and reloading components saved in newer SketchUp versions.
+
 ## [1.6.0] - 2025-12-07
 
 ### Fixed

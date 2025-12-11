@@ -67,6 +67,11 @@ module OpenXrefManager
       UI.start_timer(0.1, false) { OpenXrefManager.check_for_status_changes(show_notification: false) }
     end
 
+    # Captures the GUID before the save operation starts.
+    def onPreSaveModel(model)
+      @guid_before_save = model.guid
+    end
+
     # Add an observer for when the model is saved.
     def onSaveModel(model)
       # We used to check for uncommitted XRefs here and block the save, 
@@ -76,6 +81,7 @@ module OpenXrefManager
       @operation_aborted = false # Reset flag
 
       new_guid = model.guid
+      
       # If the GUID changed after saving,
       # find all lock files owned by this user from the previous session state and update them.
       if @guid_before_save != new_guid

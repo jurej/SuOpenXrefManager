@@ -1,7 +1,7 @@
 module OpenXrefManager
 
   # --- Constants ---
-  VERSION = "1.6.0"
+  VERSION = "1.6.1"
   XREF_DICT_NAME = "OpenXrefManager::Xref"
   XREF_PATH_KEY = "path"
   XREF_PATH_TYPE_KEY = "path_type" # "absolute" or "relative"
