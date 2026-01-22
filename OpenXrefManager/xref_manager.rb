@@ -313,6 +313,25 @@ module OpenXrefManager
       return
     end
     
+    # Check if readonly checkout exists - offer to upgrade to full checkout
+    if is_readonly_checkout?(definition)
+      message = "'#{component_name}' is in read-only checkout mode.\n\n"
+      message += "The file is now unlocked. Would you like to check it out normally so you can publish changes?"
+      result = UI.messagebox(message, MB_YESNO)
+      if result == IDYES
+        # Clear readonly checkout and check out normally
+        clear_readonly_checkout(definition)
+        self.check_out_xref(component_name, readonly: false)
+        return
+      else
+        # Just clear readonly checkout
+        clear_readonly_checkout(definition)
+        @last_xref_statuses[definition.guid] = { lock_content: "unlocked", update_available: _is_update_available?(definition) }
+        self.refresh_dialog_data
+        return
+      end
+    end
+    
     path = self.resolve_xref_path(definition)
     return unless path
     
@@ -360,7 +379,9 @@ module OpenXrefManager
   end
 
   # Creates a .lock file for an XRef, marking it as "checked out" by the current user.
-  def self.check_out_xref(component_name)
+  # @param component_name [String] Name of the component
+  # @param readonly [Boolean] If true, allows editing but prevents publishing (no lock file created)
+  def self.check_out_xref(component_name, readonly: false)
     model = Sketchup.active_model
     definition = model.definitions.find { |d| d.name == component_name }
     return unless definition
@@ -368,7 +389,46 @@ module OpenXrefManager
     return unless path
     lock_path = path + ".lock"
     
-    if File.exist?(path) && !File.exist?(lock_path)
+    if readonly
+      # Read-only checkout: no lock file, just set attribute
+      model.start_operation("Check Out XRef (Read-Only)", true)
+      begin
+        # Get lock info to show who has it locked
+        lock_content = get_xref_lock_status(definition)
+        lock_owner_name = ""
+        if lock_content != "unlocked"
+          lock_owner_name, _, _, _ = lock_content.split('|')
+        end
+        
+        # Set readonly checkout flag
+        definition.set_attribute(XREF_DICT_NAME, XREF_READONLY_CHECKOUT_KEY, true)
+        # Clear the edited_without_lock flag when checking out
+        definition.set_attribute(XREF_DICT_NAME, XREF_EDITED_WITHOUT_LOCK_KEY, false)
+        
+        # Update status cache (keep existing lock_content since we don't own the lock)
+        @last_xref_statuses[definition.guid] = { 
+          lock_content: lock_content, 
+          update_available: _is_update_available?(definition),
+          readonly_checkout: true
+        }
+        
+        # Always unlock instances when checking out
+        self.lock_or_unlock_instances_for_definition(definition, false)
+        
+        # Show message explaining readonly status
+        message = "XRef '#{component_name}' is now checked out in read-only mode.\n\n"
+        if lock_owner_name && !lock_owner_name.empty?
+          message += "The file is locked by: #{lock_owner_name}\n\n"
+        end
+        message += "You can edit this XRef locally, but changes cannot be published to the file until the lock is released.\n\n"
+        message += "Your changes will be saved in this model file."
+        UI.messagebox(message)
+      rescue => e
+        UI.messagebox("Failed to check out XRef in read-only mode:\n#{e.message}")
+      end
+      model.commit_operation
+    elsif File.exist?(path) && !File.exist?(lock_path)
+      # Normal checkout: create lock file
       model.start_operation("Check Out XRef", true)
       begin
         model_path = model.path
@@ -377,6 +437,8 @@ module OpenXrefManager
         lock_content = "#{@user_name}|#{model.guid}|#{model_name}|#{model_path_str}"
 
         File.write(lock_path, lock_content)
+        # Clear readonly checkout flag if it exists
+        clear_readonly_checkout(definition)
         # Clear the edited_without_lock flag when checking out
         definition.set_attribute(XREF_DICT_NAME, XREF_EDITED_WITHOUT_LOCK_KEY, false)
         @last_xref_statuses[definition.guid] = { lock_content: lock_content, update_available: _is_update_available?(definition) }
@@ -391,6 +453,38 @@ module OpenXrefManager
     end
     self.refresh_dialog_data
   end
+
+  # Checks out an XRef in read-only mode (allows editing but prevents publishing).
+  # @param component_name [String] Name of the component
+  def self.check_out_xref_readonly(component_name)
+    self.check_out_xref(component_name, readonly: true)
+  end
+
+  # Cancels a read-only checkout, removing the readonly flag.
+  # @param component_name [String] Name of the component
+  def self.cancel_readonly_checkout(component_name)
+    model = Sketchup.active_model
+    definition = model.definitions.find { |d| d.name == component_name }
+    return unless definition
+    
+    unless is_readonly_checkout?(definition)
+      UI.messagebox("'#{component_name}' is not in read-only checkout mode.")
+      return
+    end
+    
+    model.start_operation("Cancel Read-Only Checkout", true)
+    clear_readonly_checkout(definition)
+    # Update status cache
+    lock_content = get_xref_lock_status(definition)
+    @last_xref_statuses[definition.guid] = { 
+      lock_content: lock_content, 
+      update_available: _is_update_available?(definition)
+    }
+    model.commit_operation
+    
+    self.refresh_dialog_data
+    Sketchup.set_status_text("Read-only checkout cancelled for '#{component_name}'.")
+  end
   
   # Internal helper to save a definition and optionally remove its lock file.
   # @param definition [Sketchup::ComponentDefinition] The XRef definition to save
@@ -398,6 +492,22 @@ module OpenXrefManager
   def self._silent_save_and_check_in(definition, keep_locked: false)
     path = self.resolve_xref_path(definition)
     return false unless path
+    
+    # Check if readonly checkout is active (prevent publishing)
+    if is_readonly_checkout?(definition)
+      lock_content = get_xref_lock_status(definition)
+      lock_owner_name = ""
+      if lock_content != "unlocked"
+        lock_owner_name, _, _, _ = lock_content.split('|')
+      end
+      message = "Cannot publish: '#{definition.name}' is checked out in read-only mode"
+      if lock_owner_name && !lock_owner_name.empty?
+        message += " because it's locked by #{lock_owner_name}"
+      end
+      message += ".\n\nYour changes are saved locally but cannot be published to the file."
+      UI.messagebox(message)
+      return false
+    end
     
     # Check if travel-through is active for this XRef (prevent saving parent in travel-through mode)
     travel_through_active = @travel_through_active || {}
@@ -474,9 +584,32 @@ module OpenXrefManager
       lock_owner_name == @user_name && lock_owner_guid == current_guid
     end
 
-    if my_xrefs.empty?
+    # Separate readonly checkouts
+    readonly_xrefs = self.get_xref_definitions.select { |d| is_readonly_checkout?(d) }
+    
+    # Filter out readonly checkouts from my_xrefs
+    my_xrefs = my_xrefs.reject { |d| is_readonly_checkout?(d) }
+
+    if my_xrefs.empty? && readonly_xrefs.empty?
       UI.messagebox("You have no XRefs checked out in this model.")
       return
+    end
+
+    if my_xrefs.empty? && !readonly_xrefs.empty?
+      message = "You have #{readonly_xrefs.length} XRef(s) in read-only checkout mode.\n\n"
+      message += "Read-only checkouts cannot be published. Please check out normally to publish changes."
+      UI.messagebox(message)
+      return
+    end
+
+    # Show warning if there are readonly checkouts
+    if !readonly_xrefs.empty?
+      readonly_names = readonly_xrefs.map { |d| d.name }.join(", ")
+      message = "Warning: #{readonly_xrefs.length} XRef(s) in read-only checkout mode will be skipped:\n\n"
+      message += readonly_names
+      message += "\n\nThese cannot be published. Continue with the remaining XRefs?"
+      result = UI.messagebox(message, MB_YESNO)
+      return unless result == IDYES
     end
 
     operation_name = keep_locked ? "Save All My XRefs" : "Save & Check In All My XRefs"
@@ -509,6 +642,22 @@ module OpenXrefManager
     definition = model.definitions.find { |d| d.name == component_name }
     return unless definition
 
+    # Early check for readonly checkout
+    if is_readonly_checkout?(definition)
+      lock_content = get_xref_lock_status(definition)
+      lock_owner_name = ""
+      if lock_content != "unlocked"
+        lock_owner_name, _, _, _ = lock_content.split('|')
+      end
+      message = "Cannot publish: '#{component_name}' is checked out in read-only mode"
+      if lock_owner_name && !lock_owner_name.empty?
+        message += " because it's locked by #{lock_owner_name}"
+      end
+      message += ".\n\nYour changes are saved locally but cannot be published to the file."
+      UI.messagebox(message)
+      return
+    end
+
     lock_content = self.get_xref_lock_status(definition)
     lock_owner_name, lock_owner_guid = lock_content.split('|')
     
@@ -525,8 +674,9 @@ module OpenXrefManager
           # Invalidate the parent's status cache so it will be re-checked
           @last_xref_statuses.delete(parent_def.guid)
           
-          # The enhanced _is_update_available? will now detect nested XRef updates
-          # Force a status check for this parent
+          # Check if parent file itself has been updated (decoupled from nested XRef updates
+          # to prevent infinite loops - parent only shows "update available" if its own
+          # file timestamp changed, not based on nested XRef content)
           update_available = _is_update_available?(parent_def)
           lock_content = get_xref_lock_status(parent_def)
           
@@ -811,6 +961,8 @@ module OpenXrefManager
     placeholder_group.hidden = true
     # Set the flag so we know it's unloaded
     definition.set_attribute(XREF_DICT_NAME, XREF_UNLOADED_KEY, true)
+    # Clear readonly checkout when unloading
+    clear_readonly_checkout(definition)
     model.commit_operation
     
     # Refresh the UI
@@ -897,10 +1049,12 @@ module OpenXrefManager
             reloaded_definition.set_attribute(XREF_DICT_NAME, key, value)
           end
         end
-        
+                
         reloaded_definition.set_attribute(XREF_DICT_NAME, XREF_UNLOADED_KEY, false)
         # Clear the edited_without_lock flag when reloading
         reloaded_definition.set_attribute(XREF_DICT_NAME, XREF_EDITED_WITHOUT_LOCK_KEY, false)
+        # Clear readonly checkout when reloading
+        clear_readonly_checkout(reloaded_definition)
         
         # Preserve nested XRef definitions - don't overwrite with versions from parent file
         if !nested_xref_map.empty?
@@ -963,6 +1117,8 @@ module OpenXrefManager
         reloaded_definition.set_attribute(XREF_DICT_NAME, XREF_UNLOADED_KEY, false)
         # Clear the edited_without_lock flag when reloading
         reloaded_definition.set_attribute(XREF_DICT_NAME, XREF_EDITED_WITHOUT_LOCK_KEY, false)
+        # Clear readonly checkout when reloading
+        clear_readonly_checkout(reloaded_definition)
         self._update_xref_timestamp(reloaded_definition)
       end
       

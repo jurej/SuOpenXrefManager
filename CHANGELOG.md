@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.7.0] - 2025-01-XX
+
+### Added
+- **Read-Only Checkout:** New feature allowing users to check out XRefs even when locked by others, enabling local editing while preventing publishing. Changes are saved locally but cannot be published to the file until the lock is released.
+  - Auto-prompt when entering locked XRefs offers read-only checkout option
+  - Clear UI indicators show read-only checkout status
+  - Publishing is blocked for read-only checkouts with informative messages
+  - Context menu options for read-only checkout and cancellation
+  - Status monitoring notifies when lock is released while read-only checkout exists
+
 ## [1.6.1] - 2025-12-11
 
 ### Fixed

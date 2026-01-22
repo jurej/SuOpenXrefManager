@@ -1,13 +1,14 @@
 module OpenXrefManager
 
   # --- Constants ---
-  VERSION = "1.6.1"
+  VERSION = "1.7.0"
   XREF_DICT_NAME = "OpenXrefManager::Xref"
   XREF_PATH_KEY = "path"
   XREF_PATH_TYPE_KEY = "path_type" # "absolute" or "relative"
   XREF_UNLOADED_KEY = "is_unloaded" # true or false
   XREF_TIMESTAMP_KEY = "timestamp" # Unix timestamp of file when last loaded
   XREF_EDITED_WITHOUT_LOCK_KEY = "edited_without_lock" # true if user chose to edit without locking
+  XREF_READONLY_CHECKOUT_KEY = "readonly_checkout" # true if XRef is checked out in read-only mode
 
   # Keys for storing "Last Published By" info
   XREF_LAST_PUBLISHER_NAME_KEY = "last_publisher_name"
@@ -151,6 +152,20 @@ module OpenXrefManager
   # Returns whether monitoring is paused
   def self.monitoring_paused?
     @monitoring_paused
+  end
+
+  # Checks if a given XRef definition is checked out in read-only mode.
+  def self.is_readonly_checkout?(definition)
+    return false unless definition
+    return false if definition.deleted?
+    definition.get_attribute(XREF_DICT_NAME, XREF_READONLY_CHECKOUT_KEY, false)
+  end
+
+  # Clears the read-only checkout flag from an XRef definition.
+  def self.clear_readonly_checkout(definition)
+    return unless definition
+    return if definition.deleted?
+    definition.delete_attribute(XREF_DICT_NAME, XREF_READONLY_CHECKOUT_KEY)
   end
 
   # Load saved username if available

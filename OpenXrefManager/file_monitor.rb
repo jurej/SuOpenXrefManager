@@ -109,6 +109,15 @@ module OpenXrefManager
       
       last_status = @last_xref_statuses[definition.guid]
       
+      # Check if readonly checkout exists
+      is_readonly = is_readonly_checkout?(definition)
+      
+      # Check if lock was released while readonly checkout exists
+      lock_was_released = false
+      if is_readonly && last_status && last_status[:lock_content] != "unlocked" && current_lock_content == "unlocked"
+        lock_was_released = true
+      end
+      
       # Check if status changed
       if last_status.nil? || 
          last_status[:lock_content] != current_lock_content || 
@@ -117,11 +126,22 @@ module OpenXrefManager
          something_changed = true
          @last_xref_statuses[definition.guid] = { lock_content: current_lock_content, update_available: current_update_available }
          
+         # Notify if lock was released while readonly checkout exists
+         if lock_was_released && show_notification
+           UI.start_timer(0.1, false) do
+             message = "The file '#{definition.name}' is now unlocked.\n\n"
+             message += "You have this XRef in read-only checkout mode. "
+             message += "You can now check it out normally to publish your changes."
+             UI.messagebox(message)
+           end
+         end
+         
          # We should lock instances if:
          # 1. It is locked by someone else (or us in another window)
          # 2. OR an update is available (force user to update before editing)
          # BUT: Don't lock if travel-through mode is enabled (allows entry to nested XRefs)
-         should_be_locked = ((is_locked_by_file && !is_mine_in_this_window) || current_update_available) && !is_travel_through_enabled?(definition)
+         # BUT: Don't lock if readonly checkout is active (allows editing)
+         should_be_locked = ((is_locked_by_file && !is_mine_in_this_window) || current_update_available) && !is_travel_through_enabled?(definition) && !is_readonly
          
          lock_or_unlock_instances_for_definition(definition, should_be_locked)
       end

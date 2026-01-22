@@ -272,6 +272,7 @@
           case 'mine_elsewhere': textClass = 'text-warning'; break;
           case 'unloaded': textClass = 'text-secondary'; break;
           case 'update_available': textClass = 'text-danger'; break;
+          case 'readonly_checkout': textClass = 'text-warning'; break;
           default: textClass = 'bg-light'; textClass = 'text-dark';
         }
 
@@ -290,6 +291,20 @@
             titleText += `\n\nLast Published by: ${xref.last_publisher_name}`;
             if (xref.last_publisher_path) {
               titleText += `\nFrom Path: ${xref.last_publisher_path}`;
+            }
+          }
+          titleAttr = `title="${titleText}"`;
+
+        } else if (xref.status_key == 'readonly_checkout') {
+          let titleText = `Last Commit: ${formatTimestamp(xref.timestamp)}`;
+          titleText += `\n\nRead-Only Checkout: You can edit locally but cannot publish changes.`;
+          if (xref.lock_owner_name && xref.lock_owner_name !== "") {
+            titleText += `\n\nLocked by: ${xref.lock_owner_name}`;
+            if (xref.lock_model && xref.lock_model !== "") {
+              titleText += `\nIn File: ${xref.lock_model}`;
+            }
+            if (xref.lock_model_path && xref.lock_model_path !== "") {
+              titleText += `\nFile Path: ${xref.lock_model_path}`;
             }
           }
           titleAttr = `title="${titleText}"`;
@@ -370,7 +385,10 @@
 
         // Column 1: Lock/Unlock
         let lockButton = '';
-        if (xref.is_locked) {
+        if (xref.status_key == 'readonly_checkout') {
+          // Read-only checkout: show disabled save button
+          lockButton = `<button class="btn btn-secondary btn-sm" title="Cannot publish: Read-only checkout. Changes saved locally only." disabled><i class="material-icons">save_as</i></button>`;
+        } else if (xref.is_locked) {
           switch (xref.status_key) {
             case 'mine':
               // Disable save if travel-through is active
@@ -468,7 +486,14 @@
           }
         }
 
-        actionsCell.innerHTML = lockButton + updateButton + loadButton + unlinkButton + travelThroughButton;
+        // Column 6: Cancel Read-Only Checkout (only for readonly checkout)
+        let cancelReadonlyButton = '';
+        if (xref.status_key == 'readonly_checkout') {
+          const escapedName = xref.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+          cancelReadonlyButton = `<button class="btn btn-warning btn-sm" title="Cancel Read-Only Checkout" onclick="handleCancelReadonlyClick('${escapedName}')"><i class="material-icons">cancel</i></button>`;
+        }
+
+        actionsCell.innerHTML = lockButton + updateButton + loadButton + unlinkButton + travelThroughButton + cancelReadonlyButton;
         row.appendChild(actionsCell);
 
         listBody.appendChild(row);
@@ -522,6 +547,12 @@
         }
       } else {
         console.error('sketchup object not available');
+      }
+    }
+
+    function handleCancelReadonlyClick(name) {
+      if (sketchup) {
+        sketchup.cancel_readonly_checkout_clicked(name);
       }
     }
 

@@ -99,12 +99,19 @@ module OpenXrefManager
           
           lock_content = self.get_xref_lock_status(definition)
           is_locked = lock_content != "unlocked"
+          is_readonly = self.is_readonly_checkout?(definition)
 
-          if is_locked
+          if is_readonly
+            # Read-only checkout is active
+            submenu.add_item("Cancel Read-Only Checkout") { self.cancel_readonly_checkout(definition.name) }
+            submenu.add_separator
+          elsif is_locked
             lock_owner_name, lock_owner_guid = lock_content.split('|')
             if lock_owner_name == @user_name && lock_owner_guid == model.guid
               submenu.add_item("Save & Check In XRef") { self.save_and_check_in_xref(definition.name) }
             else
+              # Locked by someone else - offer readonly checkout
+              submenu.add_item("Check Out (Read-Only)") { self.check_out_xref_readonly(definition.name) }
               cmd_locked = UI::Command.new("Locked by #{lock_owner_name}") { }
               cmd_locked.set_validation_proc { MF_GRAYED }
               submenu.add_item(cmd_locked)

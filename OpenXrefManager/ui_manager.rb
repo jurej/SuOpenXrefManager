@@ -31,6 +31,9 @@ module OpenXrefManager
       
       update_available = _is_update_available?(definition)
       
+      # Check for readonly checkout
+      is_readonly = is_readonly_checkout?(definition)
+      
       status = "Available"
       status_key = "ok"
       
@@ -40,6 +43,14 @@ module OpenXrefManager
       elsif is_unloaded
         status = "Unloaded"
         status_key = "unloaded"
+      elsif is_readonly
+        # Readonly checkout takes precedence
+        if lock_owner_name && !lock_owner_name.empty?
+          status = "Read-Only Checkout (Locked by #{lock_owner_name})"
+        else
+          status = "Read-Only Checkout"
+        end
+        status_key = "readonly_checkout"
       elsif is_locked
         if lock_owner_name == @user_name
            if lock_owner_guid == model.guid
@@ -91,7 +102,8 @@ module OpenXrefManager
         last_publisher_name: last_publisher_name,
         last_publisher_path: last_publisher_path,
         travel_through_enabled: travel_through_enabled,
-        has_nested_xrefs: has_nested_xrefs
+        has_nested_xrefs: has_nested_xrefs,
+        is_readonly_checkout: is_readonly
       }
     end
     
@@ -177,6 +189,10 @@ module OpenXrefManager
 
       @dialog.add_action_callback("disable_travel_through_clicked") do |action_context, component_name|
         self.disable_travel_through(component_name)
+      end
+
+      @dialog.add_action_callback("cancel_readonly_checkout_clicked") do |action_context, component_name|
+        self.cancel_readonly_checkout(component_name)
       end
 
       @dialog.add_action_callback("publish_all_clicked") do |action_context, keep_locked_str|

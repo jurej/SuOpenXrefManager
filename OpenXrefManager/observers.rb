@@ -247,14 +247,31 @@ module OpenXrefManager
         return # Allow entry
       end
 
-      # If locked by someone else (not us), prevent entry (unless travel-through was already handled above)
+      # If locked by someone else (not us), offer readonly checkout option
       if is_locked_by_other
-        # Normal lock check - prevent entry
         UI.start_timer(0.1, false) do
           lock_owner_name, _, lock_model_name, _ = lock_content.split('|')
           lock_model_name ||= "an unsaved model"
-          UI.messagebox("Cannot edit: '#{definition.name}' is checked out by #{lock_owner_name} in '#{lock_model_name}'.")
-          model.close_active if model.active_path
+          
+          message = "'#{definition.name}' is checked out by #{lock_owner_name} in '#{lock_model_name}'.\n\n"
+          message += "You can check it out in read-only mode to make local edits, but you won't be able to publish changes to the file.\n\n"
+          message += "What would you like to do?"
+          
+          # Use a custom dialog with multiple options
+          # SketchUp's UI.messagebox only supports Yes/No/Cancel, so we'll use a workaround
+          # For now, we'll offer Yes (readonly checkout) or No (cancel)
+          result = UI.messagebox(message + "\n\nYes = Check Out (Read-Only)\nNo = Cancel", MB_YESNO)
+          
+          if result == IDYES
+            # User chose readonly checkout
+            OpenXrefManager.check_out_xref_readonly(definition.name)
+            # Clear the edited_without_lock flag when checking out
+            definition.set_attribute(OpenXrefManager::XREF_DICT_NAME, OpenXrefManager::XREF_EDITED_WITHOUT_LOCK_KEY, false)
+            # Allow entry - instances are already unlocked by check_out_xref_readonly
+          else
+            # User chose to cancel - exit edit mode
+            model.close_active if model.active_path
+          end
         end
         return
       end
