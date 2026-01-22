@@ -13,12 +13,42 @@ Open XRef Manager is a comprehensive external reference (XRef) system for Sketch
 
 ## Installation
 
+### Recommended: Install from .rbz File (Easiest Method)
+
+1. Download the latest `.rbz` file from the `releases` folder:
+   - `releases/OpenXrefManager_v1.7.0.rbz` (or latest version)
+2. Open SketchUp
+3. Go to **Window → Extension Manager**
+4. Click **Install Extension** button
+5. Select the downloaded `.rbz` file
+6. Restart SketchUp
+7. The XRef Manager toolbar should appear automatically
+
+### Alternative: Manual Installation
+
+If you prefer to install manually or are developing:
+
 1. Download the plugin files
 2. Copy the `OpenXrefManager` folder and `OpenXrefManager.rb` file to your SketchUp Plugins folder:
    - **Windows**: `C:\Users\[username]\AppData\Roaming\SketchUp\SketchUp [version]\SketchUp\Plugins\`
    - **Mac**: `~/Library/Application Support/SketchUp [version]/SketchUp/Plugins/`
 3. Restart SketchUp
 4. The XRef Manager toolbar should appear automatically
+
+### Building from Source
+
+To build a new `.rbz` file for distribution:
+
+1. Update the version number in:
+   - `OpenXrefManager.rb` (line 25)
+   - `OpenXrefManager/core.rb` (line 3)
+2. Run the build script:
+   ```powershell
+   .\build_rbz.ps1
+   ```
+3. The `.rbz` file will be created in the `releases` folder
+
+See `releases/BUILD_INSTRUCTIONS.md` for more details.
 
 ## Getting Started
 

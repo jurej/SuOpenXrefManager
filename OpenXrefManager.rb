@@ -14,8 +14,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-require 'sketchup.rb'
-require 'extensions.rb'
+require "sketchup"
+require "extensions"
 
 # Create a new SketchupExtension object.
 open_xref_extension = SketchupExtension.new("Open XRef Manager", "OpenXrefManager/loader")
@@ -28,4 +28,3 @@ open_xref_extension.copyright = "2025, licensed under GNU GPL v3"
 
 # Register the extension with SketchUp.
 Sketchup.register_extension(open_xref_extension, true)
-
