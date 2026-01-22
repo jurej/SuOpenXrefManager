@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.7.0] - 2025-01-XX
+## [1.7.0] - 2026-01-22
 
 ### Added
 - **Read-Only Checkout:** New feature allowing users to check out XRefs even when locked by others, enabling local editing while preventing publishing. Changes are saved locally but cannot be published to the file until the lock is released.
