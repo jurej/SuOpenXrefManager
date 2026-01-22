@@ -9,6 +9,7 @@ module OpenXrefManager
   XREF_TIMESTAMP_KEY = "timestamp" # Unix timestamp of file when last loaded
   XREF_EDITED_WITHOUT_LOCK_KEY = "edited_without_lock" # true if user chose to edit without locking
   XREF_READONLY_CHECKOUT_KEY = "readonly_checkout" # true if XRef is checked out in read-only mode
+  XREF_READONLY_MODIFIED_KEY = "readonly_modified" # true if XRef has been modified while in read-only checkout
 
   # Keys for storing "Last Published By" info
   XREF_LAST_PUBLISHER_NAME_KEY = "last_publisher_name"

@@ -33,6 +33,7 @@ module OpenXrefManager
       
       # Check for readonly checkout
       is_readonly = is_readonly_checkout?(definition)
+      readonly_modified = definition.get_attribute(XREF_DICT_NAME, XREF_READONLY_MODIFIED_KEY, false)
       
       status = "Available"
       status_key = "ok"
@@ -51,6 +52,10 @@ module OpenXrefManager
           status = "Read-Only Checkout"
         end
         status_key = "readonly_checkout"
+        # If modified in readonly checkout, show as update available
+        if readonly_modified
+          update_available = true
+        end
       elsif is_locked
         if lock_owner_name == @user_name
            if lock_owner_guid == model.guid
@@ -103,7 +108,8 @@ module OpenXrefManager
         last_publisher_path: last_publisher_path,
         travel_through_enabled: travel_through_enabled,
         has_nested_xrefs: has_nested_xrefs,
-        is_readonly_checkout: is_readonly
+        is_readonly_checkout: is_readonly,
+        readonly_modified: readonly_modified
       }
     end
     
@@ -122,9 +128,9 @@ module OpenXrefManager
         preferences_key: "OpenXrefManager_Dialog",
         style: UI::HtmlDialog::STYLE_DIALOG,
         resizable: true,
-        width: 900,
+        width: 1000,
         height: 600,
-        min_width: 600,
+        min_width: 800,
         min_height: 400
       }
       
@@ -145,6 +151,10 @@ module OpenXrefManager
       
       @dialog.add_action_callback("check_out_clicked") do |action_context, component_name|
         self.check_out_xref(component_name)
+      end
+
+      @dialog.add_action_callback("check_out_readonly_clicked") do |action_context, component_name|
+        self.check_out_xref_readonly(component_name)
       end
       
       @dialog.add_action_callback("save_and_check_in_clicked") do |action_context, component_name|

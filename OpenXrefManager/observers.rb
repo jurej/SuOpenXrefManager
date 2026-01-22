@@ -247,6 +247,14 @@ module OpenXrefManager
         return # Allow entry
       end
 
+      # Check if readonly checkout is already active - mark as modified when entering edit mode
+      if OpenXrefManager.is_readonly_checkout?(definition)
+        # User is entering edit mode for readonly checkout XRef - mark as modified
+        definition.set_attribute(OpenXrefManager::XREF_DICT_NAME, OpenXrefManager::XREF_READONLY_MODIFIED_KEY, true)
+        # Allow entry - readonly checkout already active
+        return
+      end
+
       # If locked by someone else (not us), offer readonly checkout option
       if is_locked_by_other
         UI.start_timer(0.1, false) do
@@ -267,6 +275,8 @@ module OpenXrefManager
             OpenXrefManager.check_out_xref_readonly(definition.name)
             # Clear the edited_without_lock flag when checking out
             definition.set_attribute(OpenXrefManager::XREF_DICT_NAME, OpenXrefManager::XREF_EDITED_WITHOUT_LOCK_KEY, false)
+            # Mark as modified when entering edit mode (user will likely make changes)
+            definition.set_attribute(OpenXrefManager::XREF_DICT_NAME, OpenXrefManager::XREF_READONLY_MODIFIED_KEY, true)
             # Allow entry - instances are already unlocked by check_out_xref_readonly
           else
             # User chose to cancel - exit edit mode

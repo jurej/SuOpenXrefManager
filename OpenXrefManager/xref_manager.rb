@@ -402,6 +402,8 @@ module OpenXrefManager
         
         # Set readonly checkout flag
         definition.set_attribute(XREF_DICT_NAME, XREF_READONLY_CHECKOUT_KEY, true)
+        # Initialize readonly modified flag to false
+        definition.set_attribute(XREF_DICT_NAME, XREF_READONLY_MODIFIED_KEY, false)
         # Clear the edited_without_lock flag when checking out
         definition.set_attribute(XREF_DICT_NAME, XREF_EDITED_WITHOUT_LOCK_KEY, false)
         
@@ -474,6 +476,8 @@ module OpenXrefManager
     
     model.start_operation("Cancel Read-Only Checkout", true)
     clear_readonly_checkout(definition)
+    # Clear readonly modified flag
+    definition.delete_attribute(XREF_DICT_NAME, XREF_READONLY_MODIFIED_KEY)
     # Update status cache
     lock_content = get_xref_lock_status(definition)
     @last_xref_statuses[definition.guid] = { 
@@ -835,14 +839,28 @@ module OpenXrefManager
       return
     end
     
+    # Check if readonly checkout with modifications
+    readonly_modified = definition && definition.get_attribute(XREF_DICT_NAME, XREF_READONLY_MODIFIED_KEY, false)
+    
     if !suppress_warning
-      question = "Reloading '#{component_name}' will discard any changes made to it in the current model.\n\n" +
-                 "Are you sure you want to continue?"
+      if readonly_modified
+        question = "Reloading '#{component_name}' will discard your local changes and reload from the published version.\n\n" +
+                   "Your changes are saved in this model but will not be in the reloaded XRef.\n\n" +
+                   "Are you sure you want to continue?"
+      else
+        question = "Reloading '#{component_name}' will discard any changes made to it in the current model.\n\n" +
+                   "Are you sure you want to continue?"
+      end
       result = UI.messagebox(question, MB_YESNO)
       return unless result == IDYES
     end
 
-    self.reload_single_xref_without_warning(component_name)
+    success = self.reload_single_xref_without_warning(component_name)
+    
+    if success && readonly_modified
+      Sketchup.set_status_text("Local changes discarded. '#{component_name}' reloaded from published version.")
+    end
+    
     self.refresh_dialog_data
   end
 
@@ -1053,8 +1071,10 @@ module OpenXrefManager
         reloaded_definition.set_attribute(XREF_DICT_NAME, XREF_UNLOADED_KEY, false)
         # Clear the edited_without_lock flag when reloading
         reloaded_definition.set_attribute(XREF_DICT_NAME, XREF_EDITED_WITHOUT_LOCK_KEY, false)
-        # Clear readonly checkout when reloading
-        clear_readonly_checkout(reloaded_definition)
+        # Clear readonly modified flag when reloading (but keep readonly checkout active)
+        reloaded_definition.delete_attribute(XREF_DICT_NAME, XREF_READONLY_MODIFIED_KEY)
+        # Note: We keep readonly checkout active after reload (don't clear it)
+        # This allows user to continue editing after discarding local changes
         
         # Preserve nested XRef definitions - don't overwrite with versions from parent file
         if !nested_xref_map.empty?
@@ -1117,8 +1137,9 @@ module OpenXrefManager
         reloaded_definition.set_attribute(XREF_DICT_NAME, XREF_UNLOADED_KEY, false)
         # Clear the edited_without_lock flag when reloading
         reloaded_definition.set_attribute(XREF_DICT_NAME, XREF_EDITED_WITHOUT_LOCK_KEY, false)
-        # Clear readonly checkout when reloading
-        clear_readonly_checkout(reloaded_definition)
+        # Clear readonly modified flag when reloading
+        reloaded_definition.delete_attribute(XREF_DICT_NAME, XREF_READONLY_MODIFIED_KEY)
+        # Note: We keep readonly checkout active after reload (don't clear it)
         self._update_xref_timestamp(reloaded_definition)
       end
       

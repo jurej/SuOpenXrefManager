@@ -121,6 +121,20 @@ module OpenXrefManager
           end
           
           submenu.add_separator
+          
+          # Add force operations to context menu (moved from GUI for safety)
+          if is_locked
+            lock_owner_name, lock_owner_guid = lock_content.split('|')
+            if lock_owner_name == @user_name && lock_owner_guid != model.guid
+              # Checked out by user in another session - offer force check-in
+              submenu.add_item("Force Check In...") { self.force_check_in_xref(definition.name) }
+            elsif lock_owner_name != @user_name
+              # Locked by someone else - offer force unlock
+              submenu.add_item("Force Unlock...") { self.force_unlock_xref(definition.name) }
+            end
+          end
+          
+          submenu.add_separator
           submenu.add_item("Unlink XRef") { self.unlink_single_xref(definition.name) }
         else
           submenu.add_item("Create XRef from this Component...") { self.create_xref_from_component }

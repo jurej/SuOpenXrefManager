@@ -89,6 +89,8 @@ This information helps you identify who has a file checked out and from which mo
 | **Checked Out (You)** | You have this checked out in the current model |
 | **Checked Out (You, elsewhere)** | You have this checked out in another model |
 | **Locked by [Name]** | Another user has this checked out |
+| **Read-Only Checkout** | Checked out in read-only mode (locked by another user, but you can edit locally) |
+| **Read-Only Checkout (Modified)** | Read-only checkout with local modifications that haven't been published |
 | **Update Available** | The file on disk is newer than your version |
 | **File Not Found** | The linked file cannot be found |
 | **Unloaded** | Geometry temporarily removed for performance |
@@ -161,28 +163,55 @@ To save all checked-out XRefs at once:
 
 ## Advanced Features
 
+### Read-Only Checkout
+
+When an XRef is locked by another user, you can check it out in **read-only mode** to make local edits without the ability to publish changes back to the file:
+
+1. The XRef will show status "Locked by [Name]"
+2. Click the **Check Out (Read-Only)** button (orange/yellow unlock icon) in the XRef Manager
+3. Or right-click the component → **Check Out (Read-Only)**
+4. The XRef is now in read-only checkout mode
+5. You can edit the XRef locally, and changes are saved in your model
+6. You **cannot** publish changes to the external file while it's locked by another user
+
+**Features:**
+- Local edits are saved in your model file
+- Status shows "Read-Only Checkout" or "Read-Only Checkout (Modified)" if you've made changes
+- If you modify the XRef, an "Update Available" button appears to discard local changes and revert to the published version
+- When the lock is released by the other user, you'll be notified and can upgrade to a full checkout
+- To cancel read-only checkout, click the **Cancel** button (X icon) in the first action column
+
+**Use Cases:**
+- Making temporary edits for visualization or testing
+- Working on a local copy while waiting for the lock to be released
+- Experimenting with changes without affecting the published version
+
 ### Force Check-In
 
 If you have an XRef checked out in another model/session and need to check it in from the current model:
 
 1. The XRef will show status "Checked Out (You, elsewhere)"
-2. Click the **Force Check In** button (lock icon)
+2. Right-click the component → **Open XRef Manager** → **Force Check In...**
 3. Confirm the warning dialog
 4. The file is saved from the current model, overwriting the previous version
 5. The lock is removed and instances are unlocked
 
 **Warning**: This overwrites the XRef file with the version from THIS model. Any changes in the other session will be lost.
 
+**Note**: Force Check-In has been moved to the context menu to prevent accidental use.
+
 ### Force Unlock
 
 If a file is locked by another user who is no longer working on it:
 
 1. The XRef will show "Locked by [Name]"
-2. Click the **Force Unlock** button (unlock icon)
+2. Right-click the component → **Open XRef Manager** → **Force Unlock...**
 3. Confirm the warning
 4. The `.lock` file is deleted
 
 **Warning**: Only use this if you're certain the other user is not actively working on the file. This can cause data loss.
+
+**Note**: Force Unlock has been moved to the context menu to prevent accidental use.
 
 ### Updating XRefs
 
@@ -369,12 +398,17 @@ If a Parent XRef is locked (by you or someone else), you can explicitly **enable
 
 Right-click on XRef component instances for quick access:
 
-- **Check Out XRef**
+- **Check Out XRef** (or **Check Out (Read-Only)** if locked by another user)
 - **Save & Check In XRef**
+- **Cancel Read-Only Checkout** (if in read-only mode)
 - **Reload XRef**
 - **Unload XRef**
 - **Unlink XRef**
+- **Force Check In...** (if checked out by you in another session)
+- **Force Unlock...** (if locked by another user)
 - **Select All Instances**
+
+**Note**: Force operations (Force Check-In and Force Unlock) are only available in the context menu to prevent accidental use.
 
 ## Background Monitoring
 
@@ -501,6 +535,8 @@ XRef data is stored in the component definition's attributes:
   - `timestamp` - Last known modification time
   - `is_unloaded` - Boolean, true if unloaded
   - `edited_without_lock` - Boolean, tracks unauthorized edits
+  - `readonly_checkout` - Boolean, true if checked out in read-only mode
+  - `readonly_modified` - Boolean, true if read-only checkout has been modified locally
   - `last_publisher_name` - Username who last saved
   - `last_publisher_model` - Model name used for last publish
   - `last_publisher_path` - Full path of model used for last publish
@@ -590,6 +626,24 @@ For issues, questions, or feature requests:
 See LICENSE file for details.
 
 ## Version History
+
+### Version 1.7.0
+**Read-Only Checkout Feature:**
+- **Read-Only Checkout**: New mode allowing users to check out XRefs that are locked by others. Enables local editing without the ability to publish changes back to the external file.
+- **Modification Tracking**: XRefs in read-only mode show "Read-Only Checkout (Modified)" status when locally modified, with an "Update Available" button to discard changes and revert to the published version.
+- **Auto-Prompt**: When attempting to edit a locked XRef, users are automatically prompted to check it out in read-only mode.
+- **Lock Release Notification**: Users are notified when the underlying lock file for a read-only checked-out XRef is released, indicating it's now available for full checkout.
+
+**UI Improvements:**
+- **Force Operations Moved**: "Force Check-In" and "Force Unlock" buttons moved from the main XRef Manager dialog to the context menu to prevent accidental use.
+- **Read-Only Checkout Button**: New "Check Out (Read-Only)" button displayed in the main dialog when an XRef is locked by another user.
+- **Cancel Button**: "Cancel Read-Only Checkout" button moved to the first action column for better visibility.
+- **Column Width Adjustments**: Actions column width increased to 20% with 300px minimum width to accommodate all action buttons without scrolling.
+- **CSS Improvements**: Updated table header styling and box-sizing for better visual consistency.
+
+**Bug Fixes:**
+- Fixed reload behavior to preserve read-only checkout state while clearing modification flags.
+- Improved status display for read-only checkout scenarios.
 
 ### Version 1.6.0
 **Major Stability Update:**

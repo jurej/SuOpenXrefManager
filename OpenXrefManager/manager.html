@@ -7,6 +7,10 @@
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
 
   <style>
+    *, ::after, ::before {
+      box-sizing: content-box;
+    }
+
     body {
       padding: 0;
       display: flex;
@@ -20,6 +24,7 @@
     .list-container {
       flex-grow: 1;
       overflow-y: auto;
+      overflow-x: auto; /* Allow horizontal scrolling if needed */
       padding: 1rem;
     }
 
@@ -34,6 +39,8 @@
       gap: 0.5rem;
       justify-content: flex-start;
       padding: 0.25rem 0;
+      flex-wrap: nowrap; /* Prevent wrapping to keep buttons in one row */
+      min-width: fit-content; /* Ensure container expands to fit all buttons */
     }
 
     .footer {
@@ -68,12 +75,16 @@
     }
 
     .table th {
-      font-weight: 600;
+      font-weight: bold;
       background-color: #fff;
       position: sticky;
       top: 0;
       z-index: 1;
       border-top: none;
+    }
+
+    .table thead th {
+      border-bottom: none;
     }
 
     .table tbody tr:hover {
@@ -83,31 +94,34 @@
 
     /* Column Widths */
     .col-name {
-      width: 18%;
+      width: 16%;
     }
 
     .col-status {
-      width: 18%;
+      width: 16%;
     }
 
     .col-path {
-      width: 18%;
+      width: 16%;
     }
 
     .col-pathtype {
-      width: 13%;
+      width: 12%;
     }
 
     .col-timestamp {
-      width: 18%;
+      width: 16%;
     }
 
     .col-actions {
-      width: 15%;
+      width: 20%;
+      min-width: 300px;
     }
 
     .col-actions.action-buttons {
       padding: 0.25rem 0.75rem !important;
+      white-space: nowrap; /* Prevent button wrapping */
+      overflow: visible; /* Allow buttons to be visible even if slightly over */
     }
 
     .cell-truncate {
@@ -385,9 +399,10 @@
 
         // Column 1: Lock/Unlock
         let lockButton = '';
-        if (xref.status_key == 'readonly_checkout') {
-          // Read-only checkout: show disabled save button
-          lockButton = `<button class="btn btn-secondary btn-sm" title="Cannot publish: Read-only checkout. Changes saved locally only." disabled><i class="material-icons">save_as</i></button>`;
+        if (xref.status_key == 'readonly_checkout' || xref.status_key == 'readonly_modified' || xref.status_key == 'readonly_unlocked') {
+          // Read-only checkout: show cancel button instead of disabled save button
+          const escapedName = xref.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+          lockButton = `<button class="btn btn-warning btn-sm" title="Cancel Read-Only Checkout" onclick="handleCancelReadonlyClick('${escapedName}')"><i class="material-icons">cancel</i></button>`;
         } else if (xref.is_locked) {
           switch (xref.status_key) {
             case 'mine':
@@ -399,19 +414,15 @@
               }
               break;
             case 'mine_elsewhere':
-              // Disable force check-in if travel-through is active
-              if (xref.travel_through_enabled) {
-                lockButton = `<button class="btn btn-secondary btn-sm" title="Cannot force check-in: Travel-through mode is active" disabled><i class="material-icons">lock</i></button>`;
-              } else {
-                lockButton = `<button class="btn btn-info btn-sm" title="Force Check In" onclick="sketchup.force_check_in_clicked('${xref.name}')"><i class="material-icons">lock</i></button>`;
-              }
+              // Checked out elsewhere - show disabled button (force check-in moved to context menu)
+              lockButton = `<button class="btn btn-secondary btn-sm" title="Checked out in another session. Use context menu for Force Check In." disabled><i class="material-icons">lock</i></button>`;
               break;
             case 'locked':
-              // Disable force unlock if travel-through is active
+              // Locked by someone else - show read-only checkout button
               if (xref.travel_through_enabled) {
-                lockButton = `<button class="btn btn-secondary btn-sm" title="Cannot force unlock: Travel-through mode is active" disabled><i class="material-icons">no_encryption</i></button>`;
+                lockButton = `<button class="btn btn-secondary btn-sm" title="Cannot check out: Travel-through mode is active" disabled><i class="material-icons">lock_open</i></button>`;
               } else {
-                lockButton = `<button class="btn btn-info btn-sm" title="Force Unlock" onclick="handleForceUnlockClick('${xref.name}')"><i class="material-icons">no_encryption</i></button>`;
+                lockButton = `<button class="btn btn-warning btn-sm" title="Check Out (Read-Only) - Edit locally but cannot publish" onclick="sketchup.check_out_readonly_clicked('${xref.name}')"><i class="material-icons">lock_open</i></button>`;
               }
               break;
             default:
@@ -428,14 +439,21 @@
 
         // Column 2: Update/Relink
         let updateButton = '';
-        if (xref.update_available) {
+        // Check if readonly checkout has local modifications
+        const isReadonlyModified = xref.is_readonly_checkout && xref.readonly_modified;
+        
+        if (xref.update_available || isReadonlyModified) {
           // Disable Update button if XRef is unloaded or travel-through is active
           if (xref.is_unloaded) {
             updateButton = `<button class="btn btn-secondary btn-sm" title="Reload XRef first to update" disabled><i class="material-icons">update</i></button>`;
           } else if (xref.travel_through_enabled) {
             updateButton = `<button class="btn btn-secondary btn-sm" title="Cannot update: Travel-through mode is active" disabled><i class="material-icons">update</i></button>`;
           } else {
-            updateButton = `<button class="btn btn-danger btn-sm" title="Update File..." onclick="sketchup.reload_single_clicked('${xref.name}', true)"><i class="material-icons">update</i></button>`;
+            // Show update button - different tooltip for readonly modified
+            const title = isReadonlyModified 
+              ? "Discard local changes and reload from published version" 
+              : "Update File...";
+            updateButton = `<button class="btn btn-danger btn-sm" title="${title}" onclick="sketchup.reload_single_clicked('${xref.name}', true)"><i class="material-icons">update</i></button>`;
           }
         } else {
           // Disable Relink button if travel-through is active
@@ -486,14 +504,7 @@
           }
         }
 
-        // Column 6: Cancel Read-Only Checkout (only for readonly checkout)
-        let cancelReadonlyButton = '';
-        if (xref.status_key == 'readonly_checkout') {
-          const escapedName = xref.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-          cancelReadonlyButton = `<button class="btn btn-warning btn-sm" title="Cancel Read-Only Checkout" onclick="handleCancelReadonlyClick('${escapedName}')"><i class="material-icons">cancel</i></button>`;
-        }
-
-        actionsCell.innerHTML = lockButton + updateButton + loadButton + unlinkButton + travelThroughButton + cancelReadonlyButton;
+        actionsCell.innerHTML = lockButton + updateButton + loadButton + unlinkButton + travelThroughButton;
         row.appendChild(actionsCell);
 
         listBody.appendChild(row);
