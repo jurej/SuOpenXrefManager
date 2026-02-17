@@ -7,7 +7,6 @@ module OpenXrefManager
   puts "OpenXrefManager: Loading menu..."
   unless file_loaded?(__FILE__)
 
-
     @@app_observer = OpenXrefAppObserver.new
     Sketchup.add_observer(@@app_observer)
 

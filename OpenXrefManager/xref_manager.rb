@@ -772,7 +772,7 @@ module OpenXrefManager
 
     result = UI.messagebox(
       "Place XRef at current axis (Yes) or at default global origin (No)? Cancel to abort.",
-      MB_YESNOCANCEL
+      MB_YESNOCANCEL,
     )
     return if result == IDCANCEL
 
@@ -816,8 +816,10 @@ module OpenXrefManager
 
     entities.each do |e|
       next unless e.is_a?(Sketchup::Group) || e.is_a?(Sketchup::ComponentInstance)
+
       child_entities = e.is_a?(Sketchup::Group) ? e.entities : e.definition.entities
       return e if child_entities == instance.owner
+
       found = _find_container(child_entities, instance)
       return found if found
     end
@@ -840,6 +842,7 @@ module OpenXrefManager
   # global origin axes); when false, use relative to current construction axes when origin_type was "current_axes".
   def self._get_stored_placement_transform(definition, model, relative_to_global: false)
     return nil unless definition
+
     arr = definition.get_attribute(XREF_DICT_NAME, XREF_ORIGIN_TRANSFORM_KEY)
     return nil unless arr.is_a?(Array) && arr.length == 16
 
@@ -876,7 +879,7 @@ module OpenXrefManager
     instance_global = _get_global_transformation(instance)
     result = UI.messagebox(
       "Store XRef position relative to origin for spatial reconstruction?\n\nYes = relative to current axes\nNo = relative to global origin\nCancel = don't store position",
-      MB_YESNOCANCEL
+      MB_YESNOCANCEL,
     )
 
     store_origin_current = (result == IDYES)
