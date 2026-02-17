@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.8.0] - 2026-02-17
+
+### Added
+- **Create XRef from component: store position relative to origin** — When converting a component to an XRef, you can optionally store its position for spatial reconstruction:
+  - **Relative to current axes** or **relative to global origin** (saved in the XRef file as `origin_transform` and `origin_type`).
+- **Load XRef: apply stored position** — When loading an XRef via "Import XRef at Origin", the stored position is applied:
+  - **Yes (current axis):** Place using stored transform relative to current construction axes.
+  - **No (default global origin):** Place using stored transform in world space (relative to global axes).
+  - XRefs without stored position data behave as before (backward compatible).
+
 ## [1.7.0] - 2026-01-22
 
 ### Added
