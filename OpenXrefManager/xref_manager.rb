@@ -784,16 +784,7 @@ module OpenXrefManager
       _set_xref_path(new_definition, path, ask_user: true)
       _update_xref_timestamp(new_definition)
 
-      # No = default global origin: use stored origin_transform in world space (relative to global axes)
-      # Yes = current axis: use stored origin_transform relative to current construction axes when present
-      placement = _get_stored_placement_transform(new_definition, model, relative_to_global: !use_current_axis)
-      if placement
-        if model.active_path && !model.active_path.empty?
-          model.active_entities.add_instance(new_definition, placement)
-        else
-          model.entities.add_instance(new_definition, placement)
-        end
-      elsif use_current_axis
+      if use_current_axis
         if model.active_path && !model.active_path.empty?
           model.active_entities.add_instance(new_definition, Geom::Transformation.new)
         else
@@ -835,25 +826,6 @@ module OpenXrefManager
     _get_global_transformation(container) * instance.transformation
   end
 
-  # Returns the placement transformation for an XRef definition that has origin_transform stored,
-  # or nil if not present. relative_to_global: when true, use stored transform in world space (default
-  # global origin axes); when false, use relative to current construction axes when origin_type was "current_axes".
-  def self._get_stored_placement_transform(definition, model, relative_to_global: false)
-    return nil unless definition
-    arr = definition.get_attribute(XREF_DICT_NAME, XREF_ORIGIN_TRANSFORM_KEY)
-    return nil unless arr.is_a?(Array) && arr.length == 16
-
-    stored_trans = Geom::Transformation.new(arr)
-    return stored_trans if relative_to_global
-
-    origin_type = definition.get_attribute(XREF_DICT_NAME, XREF_ORIGIN_TYPE_KEY, "global")
-    if origin_type == "current_axes"
-      model.axes.transformation * stored_trans
-    else
-      stored_trans
-    end
-  end
-
   # Converts a regular component into an XRef by saving it to an external file.
   # Optionally stores the instance position relative to current axes or global origin for spatial reconstruction.
   def self.create_xref_from_component
@@ -884,7 +856,10 @@ module OpenXrefManager
 
     model.start_operation("Create XRef from Component", true)
     begin
-      # Set origin position on definition before save_as so the .skp file embeds it for correct placement on load
+      definition.save_as(path)
+      _set_xref_path(definition, path, ask_user: true)
+      _update_xref_timestamp(definition)
+
       if store_origin_current
         ref_trans = model.axes.transformation.inverse * instance_global
         definition.set_attribute(XREF_DICT_NAME, XREF_ORIGIN_TRANSFORM_KEY, ref_trans.to_a)
@@ -893,10 +868,6 @@ module OpenXrefManager
         definition.set_attribute(XREF_DICT_NAME, XREF_ORIGIN_TRANSFORM_KEY, instance_global.to_a)
         definition.set_attribute(XREF_DICT_NAME, XREF_ORIGIN_TYPE_KEY, "global")
       end
-
-      definition.save_as(path)
-      _set_xref_path(definition, path, ask_user: true)
-      _update_xref_timestamp(definition)
     rescue StandardError => e
       UI.messagebox("Failed to save new XRef file.\nError: #{e.message}")
       model.abort_operation
