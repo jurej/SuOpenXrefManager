@@ -801,7 +801,33 @@ module OpenXrefManager
     refresh_dialog_data
   end
 
+  # Finds the Group or ComponentInstance whose entities contain the given instance.
+  def self._find_container(entities, instance)
+    return nil unless entities && instance
+
+    entities.each do |e|
+      next unless e.is_a?(Sketchup::Group) || e.is_a?(Sketchup::ComponentInstance)
+      child_entities = e.is_a?(Sketchup::Group) ? e.entities : e.definition.entities
+      return e if child_entities == instance.owner
+      found = _find_container(child_entities, instance)
+      return found if found
+    end
+    nil
+  end
+
+  # Returns the global (model-space) transformation of an instance, including nested containers.
+  def self._get_global_transformation(instance)
+    model = instance.model
+    return instance.transformation.clone if model.entities.include?(instance)
+
+    container = _find_container(model.entities, instance)
+    return instance.transformation.clone unless container
+
+    _get_global_transformation(container) * instance.transformation
+  end
+
   # Converts a regular component into an XRef by saving it to an external file.
+  # Optionally stores the instance position relative to current axes or global origin for spatial reconstruction.
   def self.create_xref_from_component
     model = Sketchup.active_model
     selection = model.selection
@@ -819,11 +845,29 @@ module OpenXrefManager
     path = UI.savepanel("Create and Link XRef File", "", "#{definition.name}.skp")
     return unless path
 
+    instance_global = _get_global_transformation(instance)
+    result = UI.messagebox(
+      "Store XRef position relative to origin for spatial reconstruction?\n\nYes = relative to current axes\nNo = relative to global origin\nCancel = don't store position",
+      MB_YESNOCANCEL
+    )
+
+    store_origin_current = (result == IDYES)
+    store_origin_global = (result == IDNO)
+
     model.start_operation("Create XRef from Component", true)
     begin
       definition.save_as(path)
       _set_xref_path(definition, path, ask_user: true)
       _update_xref_timestamp(definition)
+
+      if store_origin_current
+        ref_trans = model.axes.transformation.inverse * instance_global
+        definition.set_attribute(XREF_DICT_NAME, XREF_ORIGIN_TRANSFORM_KEY, ref_trans.to_a)
+        definition.set_attribute(XREF_DICT_NAME, XREF_ORIGIN_TYPE_KEY, "current_axes")
+      elsif store_origin_global
+        definition.set_attribute(XREF_DICT_NAME, XREF_ORIGIN_TRANSFORM_KEY, instance_global.to_a)
+        definition.set_attribute(XREF_DICT_NAME, XREF_ORIGIN_TYPE_KEY, "global")
+      end
     rescue StandardError => e
       UI.messagebox("Failed to save new XRef file.\nError: #{e.message}")
       model.abort_operation

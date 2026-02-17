@@ -1,6 +1,6 @@
 module OpenXrefManager
   # --- Constants ---
-  VERSION = "1.7.0".freeze
+  VERSION = "1.8.0".freeze
   XREF_DICT_NAME = "OpenXrefManager::Xref".freeze
   XREF_PATH_KEY = "path".freeze
   XREF_PATH_TYPE_KEY = "path_type".freeze # "absolute" or "relative"
@@ -14,6 +14,10 @@ module OpenXrefManager
   XREF_LAST_PUBLISHER_NAME_KEY = "last_publisher_name".freeze
   XREF_LAST_PUBLISHER_MODEL_KEY = "last_publisher_model".freeze
   XREF_LAST_PUBLISHER_PATH_KEY = "last_publisher_path".freeze
+
+  # Position relative to origin (for reconstructing spatial layout)
+  XREF_ORIGIN_TRANSFORM_KEY = "origin_transform".freeze # 16-element array from Geom::Transformation#to_a
+  XREF_ORIGIN_TYPE_KEY = "origin_type".freeze # "global" or "current_axes"
 
   # Settings dictionary and keys
   SETTINGS_DICT_NAME = "OpenXrefManager::Settings".freeze
