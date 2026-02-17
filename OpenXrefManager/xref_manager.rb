@@ -763,18 +763,36 @@ module OpenXrefManager
     refresh_dialog_data
   end
 
-  # Imports a .skp file as a new XRef at the model origin.
+  # Imports a .skp file as a new XRef. User can choose to place at current axis
+  # (construction axes at model root, or local origin when inside a group) or at default global origin.
   def self.import_as_xref_at_origin
     model = Sketchup.active_model
     path = UI.openpanel("Import XRef at Origin", "", "SketchUp Files|*.skp||")
     return unless path
+
+    result = UI.messagebox(
+      "Place XRef at current axis (Yes) or at default global origin (No)? Cancel to abort.",
+      MB_YESNOCANCEL
+    )
+    return if result == IDCANCEL
+
+    use_current_axis = (result == IDYES)
 
     model.start_operation("Import XRef at Origin", true)
     begin
       new_definition = model.definitions.load(path, allow_newer: true)
       _set_xref_path(new_definition, path, ask_user: true)
       _update_xref_timestamp(new_definition)
-      model.entities.add_instance(new_definition, Geom::Transformation.new)
+
+      if use_current_axis
+        if model.active_path && !model.active_path.empty?
+          model.active_entities.add_instance(new_definition, Geom::Transformation.new)
+        else
+          model.entities.add_instance(new_definition, model.axes.transformation)
+        end
+      else
+        model.entities.add_instance(new_definition, Geom::Transformation.new)
+      end
     rescue StandardError => e
       UI.messagebox("Failed to import XRef.\nError: #{e.message}")
     ensure
