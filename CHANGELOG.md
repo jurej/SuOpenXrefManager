@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.8.1] - 2026-02-18
+
+### Fixed
+- **Read-only checkout: XRef stayed locked** — The entities observer was re-locking instances when it saw an unlocked instance and a file locked by others, without considering read-only checkout. Instances now stay unlocked after read-only checkout so you can edit locally as intended.
+
 ## [1.8.0] - 2026-02-17
 
 ### Added

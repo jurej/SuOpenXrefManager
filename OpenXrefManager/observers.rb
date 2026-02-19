@@ -30,7 +30,8 @@ module OpenXrefManager
       # Determine if the instance should be forced back to a locked state
       # Re-lock if it's locked by someone else OR if an update is available.
       # BUT: Don't lock if travel-through mode is enabled (allows entry to nested XRefs)
-      should_be_locked = ((is_locked_by_file && !is_mine_in_this_window) || update_available) && !OpenXrefManager.is_travel_through_enabled?(definition)
+      # BUT: Don't lock if read-only checkout is active (allows editing while file is locked by others)
+      should_be_locked = ((is_locked_by_file && !is_mine_in_this_window) || update_available) && !OpenXrefManager.is_travel_through_enabled?(definition) && !OpenXrefManager.is_readonly_checkout?(definition)
 
       return unless should_be_locked
 

@@ -1,6 +1,6 @@
 module OpenXrefManager
   # --- Constants ---
-  VERSION = "1.8.0".freeze
+  VERSION = "1.8.1".freeze
   XREF_DICT_NAME = "OpenXrefManager::Xref".freeze
   XREF_PATH_KEY = "path".freeze
   XREF_PATH_TYPE_KEY = "path_type".freeze # "absolute" or "relative"
