@@ -72,6 +72,7 @@
     .table td {
       vertical-align: middle;
       text-align: left;
+      font-size: 0.8rem;
     }
 
     .table th {
@@ -130,6 +131,22 @@
       text-overflow: ellipsis;
     }
 
+    /* Status cell with claim button: text truncates, icon always visible */
+    .status-with-claim {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+    }
+    .status-with-claim .status-text-truncate {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .status-with-claim .status-claim-btn {
+      flex-shrink: 0;
+    }
+
     .cell-nowrap {
       white-space: nowrap;
     }
@@ -163,8 +180,8 @@
       <button id="import-place-button" class="btn btn-outline-primary btn-sm ml-2" title="Import XRef (Place)">
         <i class="material-icons">add_location_alt</i> Import & Place
       </button>
-      <button id="create-xref-button" class="btn btn-outline-primary btn-sm ml-2" title="Create XRef from Component">
-        <i class="material-icons">create_new_folder</i> Create from Component
+      <button id="create-xref-button" class="btn btn-outline-primary btn-sm ml-2" title="Create XRef from Component or Group">
+        <i class="material-icons">create_new_folder</i> Create from Component or Group
       </button>
     </div>
   </div>
@@ -348,7 +365,18 @@
             titleAttr = `title="${titleText}"`;
           }
         }
-        statusDiv.innerHTML = `<span class="badge ${bgClass} ${textClass}" ${titleAttr}>${xref.status}</span>`;
+        if (xref.status_key === 'mine_elsewhere') {
+          statusDiv.className = 'status-with-claim';
+          statusDiv.innerHTML = `<span class="status-text-truncate ${bgClass} ${textClass}" style="font-weight: bold" ${titleAttr}>${xref.status}</span>`;
+          const claimBtn = document.createElement('button');
+          claimBtn.className = 'btn btn-warning btn-sm ml-1 status-claim-btn';
+          claimBtn.title = 'Claim for this session (only if not using in another window)';
+          claimBtn.innerHTML = '<i class="material-icons">person_pin</i>';
+          claimBtn.onclick = () => { if (sketchup) sketchup.claim_for_session_clicked(xref.name); };
+          statusDiv.appendChild(claimBtn);
+        } else {
+          statusDiv.innerHTML = `<span class="${bgClass} ${textClass}" style="font-weight: bold" ${titleAttr}>${xref.status}</span>`;
+        }
         statusCell.appendChild(statusDiv);
         row.appendChild(statusCell);
 
@@ -414,7 +442,7 @@
               }
               break;
             case 'mine_elsewhere':
-              // Checked out elsewhere - show disabled button (force check-in moved to context menu)
+              // Claim icon is in status column; force check-in in context menu
               lockButton = `<button class="btn btn-secondary btn-sm" title="Checked out in another session. Use context menu for Force Check In." disabled><i class="material-icons">lock</i></button>`;
               break;
             case 'locked':

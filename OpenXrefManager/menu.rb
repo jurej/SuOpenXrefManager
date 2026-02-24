@@ -71,7 +71,7 @@ module OpenXrefManager
     menu.add_item("Import XRef at Origin...") { import_as_xref_at_origin }
     menu.add_item("Import XRef (Place)...") { import_as_xref }
     menu.add_separator
-    menu.add_item("Create XRef from Component...") { create_xref_from_component }
+    menu.add_item("Create XRef from Component or Group...") { create_xref_from_component }
     menu.add_item("Reload All XRefs") { reload_all_xrefs }
 
     # --- Context Menu ---
@@ -83,54 +83,71 @@ module OpenXrefManager
       context_menu.add_separator
       submenu = context_menu.add_submenu("Open XRef Manager")
 
-      if selection.length == 1 && selection.first.is_a?(Sketchup::ComponentInstance)
-        instance = selection.first
-        definition = instance.definition
+      if selection.length == 1
+        entity = selection.first
+        if entity.is_a?(Sketchup::ComponentInstance)
+          instance = entity
+          definition = instance.definition
 
-        if is_xref?(definition)
-          submenu.add_item("Reload XRef") { reload_single_xref(definition.name) }
+          if is_xref?(definition)
+            submenu.add_item("Reload XRef") { reload_single_xref(definition.name) }
 
-          lock_content = get_xref_lock_status(definition)
-          is_locked = lock_content != "unlocked"
-          is_readonly = is_readonly_checkout?(definition)
+            lock_content = get_xref_lock_status(definition)
+            is_locked = lock_content != "unlocked"
+            is_readonly = is_readonly_checkout?(definition)
 
-          if is_readonly
-            # Read-only checkout is active
-            submenu.add_item("Cancel Read-Only Checkout") { cancel_readonly_checkout(definition.name) }
-            submenu.add_separator
-          elsif is_locked
-            lock_owner_name, lock_owner_guid = lock_content.split("|")
-            if lock_owner_name == @user_name && lock_owner_guid == model.guid
-              submenu.add_item("Save & Check In XRef") { save_and_check_in_xref(definition.name) }
+            if is_readonly
+              # Read-only checkout is active
+              submenu.add_item("Cancel Read-Only Checkout") { cancel_readonly_checkout(definition.name) }
+              submenu.add_separator
+            elsif is_locked
+              lock_owner_name, lock_owner_guid = lock_content.split("|")
+              if lock_owner_name == @user_name && lock_owner_guid == model.guid
+                submenu.add_item("Save & Check In XRef") { save_and_check_in_xref(definition.name) }
+              else
+                # Locked by someone else - offer readonly checkout
+                submenu.add_item("Check Out (Read-Only)") { check_out_xref_readonly(definition.name) }
+                cmd_locked = UI::Command.new("Locked by #{lock_owner_name}") {}
+                cmd_locked.set_validation_proc { MF_GRAYED }
+                submenu.add_item(cmd_locked)
+              end
             else
-              # Locked by someone else - offer readonly checkout
-              submenu.add_item("Check Out (Read-Only)") { check_out_xref_readonly(definition.name) }
-              cmd_locked = UI::Command.new("Locked by #{lock_owner_name}") {}
-              cmd_locked.set_validation_proc { MF_GRAYED }
-              submenu.add_item(cmd_locked)
+              submenu.add_item("Check Out XRef") { check_out_xref(definition.name) }
             end
+
+            submenu.add_separator
+
+            # Add force operations to context menu (moved from GUI for safety)
+            if is_locked
+              lock_owner_name, lock_owner_guid = lock_content.split("|")
+              if lock_owner_name == @user_name && lock_owner_guid != model.guid
+                # Checked out by user in another session - offer claim and force check-in
+                submenu.add_item("Claim for this session...") do
+                  result = UI.messagebox(
+                    "This will assign the lock to this session. Only do this if you are not using this XRef in another window.\n\nContinue?",
+                    MB_YESNO,
+                  )
+                  if result == IDYES
+                    claim_xref_lock_for_this_session(definition.name)
+                    refresh_dialog_data
+                  end
+                end
+                submenu.add_item("Force Check In...") { force_check_in_xref(definition.name) }
+              elsif lock_owner_name != @user_name
+                # Locked by someone else - offer force unlock
+                submenu.add_item("Force Unlock...") { force_unlock_xref(definition.name) }
+              end
+            end
+
+            submenu.add_separator
+            submenu.add_item("Unlink XRef") { unlink_single_xref(definition.name) }
           else
-            submenu.add_item("Check Out XRef") { check_out_xref(definition.name) }
+            submenu.add_item("Create XRef from this Component...") { create_xref_from_component }
           end
-
-          submenu.add_separator
-
-          # Add force operations to context menu (moved from GUI for safety)
-          if is_locked
-            lock_owner_name, lock_owner_guid = lock_content.split("|")
-            if lock_owner_name == @user_name && lock_owner_guid != model.guid
-              # Checked out by user in another session - offer force check-in
-              submenu.add_item("Force Check In...") { force_check_in_xref(definition.name) }
-            elsif lock_owner_name != @user_name
-              # Locked by someone else - offer force unlock
-              submenu.add_item("Force Unlock...") { force_unlock_xref(definition.name) }
-            end
-          end
-
-          submenu.add_separator
-          submenu.add_item("Unlink XRef") { unlink_single_xref(definition.name) }
+        elsif entity.is_a?(Sketchup::Group)
+          submenu.add_item("Create XRef from this Group...") { create_xref_from_component }
         else
-          submenu.add_item("Create XRef from this Component...") { create_xref_from_component }
+          submenu.add_item("Import XRef...") { import_as_xref }
         end
       else
         submenu.add_item("Import XRef...") { import_as_xref }

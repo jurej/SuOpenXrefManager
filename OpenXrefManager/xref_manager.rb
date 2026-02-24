@@ -731,6 +731,7 @@ module OpenXrefManager
       result = UI.messagebox(question, MB_YESNO)
       return unless result == IDYES
 
+      claim_xref_lock_for_this_model(definition)
       model.start_operation("Force Check In XRef", true)
       _silent_save_and_check_in(definition)
       model.commit_operation
@@ -857,26 +858,35 @@ module OpenXrefManager
     end
   end
 
-  # Converts a regular component into an XRef by saving it to an external file.
+  # Converts a regular component or group into an XRef by saving it to an external file.
+  # If the selection is a Group, it is converted to a component first (in-place).
   # Optionally stores the instance position relative to current axes or global origin for spatial reconstruction.
   def self.create_xref_from_component
     model = Sketchup.active_model
     selection = model.selection
 
-    if selection.length != 1 || !selection.first.is_a?(Sketchup::ComponentInstance)
-      UI.messagebox("Please select exactly ONE component instance.")
+    unless selection.length == 1
+      UI.messagebox("Please select exactly one component or group.")
       return
     end
 
-    instance = selection.first
-    definition = instance.definition
+    entity = selection.first
+    unless entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group)
+      UI.messagebox("Please select exactly one component or group.")
+      return
+    end
 
-    return UI.messagebox("'#{definition.name}' is already an XRef.") if is_xref?(definition)
+    is_group = entity.is_a?(Sketchup::Group)
+    suggested_name = is_group ? (entity.name.empty? ? "Group" : entity.name) : entity.definition.name
 
-    path = UI.savepanel("Create and Link XRef File", "", "#{definition.name}.skp")
+    unless is_group
+      return UI.messagebox("'#{entity.definition.name}' is already an XRef.") if is_xref?(entity.definition)
+    end
+
+    path = UI.savepanel("Create and Link XRef File", "", "#{suggested_name}.skp")
     return unless path
 
-    instance_global = _get_global_transformation(instance)
+    instance_global = _get_global_transformation(entity)
     result = UI.messagebox(
       "Store XRef position relative to origin for spatial reconstruction?\n\nYes = relative to current axes\nNo = relative to global origin\nCancel = don't store position",
       MB_YESNOCANCEL,
@@ -885,8 +895,20 @@ module OpenXrefManager
     store_origin_current = (result == IDYES)
     store_origin_global = (result == IDNO)
 
-    model.start_operation("Create XRef from Component", true)
+    group_name = entity.name.dup.freeze if is_group && entity.name && !entity.name.empty?
+
+    op_name = is_group ? "Create XRef from Group" : "Create XRef from Component"
+    model.start_operation(op_name, true)
     begin
+      if is_group
+        instance = entity.to_component
+        definition = instance.definition
+        definition.name = group_name if group_name
+      else
+        instance = entity
+        definition = instance.definition
+      end
+
       # Set origin position on definition before save_as so the .skp file embeds it for correct placement on load
       if store_origin_current
         ref_trans = model.axes.transformation.inverse * instance_global
@@ -1264,6 +1286,62 @@ module OpenXrefManager
         puts "Could not update lock file #{lock_path}: #{e.message}"
       end
     end
+  end
+
+  # Rewrites one XRef's lock file to the current model's GUID when the lock is owned by the current user
+  # but has a different GUID ("mine elsewhere"). Returns true if the lock was claimed, false otherwise.
+  # Note: Lock format is name|guid|model_name|model_path; usernames and paths should not contain "|".
+  def self.claim_xref_lock_for_this_model(definition)
+    model = definition.model
+    return false unless model&.valid?
+
+    lock_content = get_xref_lock_status(definition)
+    return false if lock_content == "unlocked"
+
+    lock_owner_name, lock_owner_guid, _lock_model_name, _lock_model_path = lock_content.split("|")
+    return false unless lock_owner_name == @user_name && lock_owner_guid != model.guid
+
+    path = resolve_xref_path(definition)
+    return false unless path
+
+    lock_path = "#{path}.lock"
+    model_path = model.path
+    model_name = model_path.nil? || model_path.empty? ? "Untitled Model" : File.basename(model_path)
+    model_path_str = model_path.nil? ? "" : model_path
+    new_content = "#{@user_name}|#{model.guid}|#{model_name}|#{model_path_str}"
+
+    begin
+      File.write(lock_path, new_content)
+    rescue StandardError => e
+      puts "Could not claim lock file #{lock_path}: #{e.message}"
+      return false
+    end
+
+    @last_xref_statuses[definition.guid] = { lock_content: new_content, update_available: _is_update_available?(definition) }
+    true
+  end
+
+  # Claims the lock for one XRef by name (for user-initiated "Claim for this session"). Returns true if claimed.
+  def self.claim_xref_lock_for_this_session(component_name)
+    model = Sketchup.active_model
+    return false unless model
+
+    definition = model.definitions.find { |d| d.name == component_name }
+    return false unless definition && is_xref?(definition)
+
+    claim_xref_lock_for_this_model(definition)
+  end
+
+  # Claims all "mine elsewhere" XRefs in the current model. Returns the number claimed.
+  def self.claim_all_owned_locks_for_this_model
+    model = Sketchup.active_model
+    return 0 unless model
+
+    claimed = 0
+    get_xref_definitions.each do |definition|
+      claimed += 1 if claim_xref_lock_for_this_model(definition)
+    end
+    claimed
   end
 
   # --- Travel-Through Mode Functions ---

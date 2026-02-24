@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.8.3] - 2026-02-24
+
+### Fixed
+- **False "Checked Out (You, elsewhere)"** — XRefs could show this status incorrectly (e.g. after Save As or stale lock). Fix: auto-claim when the lock was from an unsaved model (empty path); "Claim for this session" in the manager and context menu (with confirmation) to assign the lock to this session; claim before Force Check In so the lock file reflects this session.
+
+### Added
+- **Claim for this session** — For XRefs showing "Checked Out (You, elsewhere)", you can click "Claim for this session" in the manager or use the context menu. A confirmation dialog reminds you to only use this if the XRef is not checked out in another window.
+
+## [1.8.2] - 2026-02-24
+
+### Added
+- **Create XRef from Group** — Context menu now shows "Create XRef from this Group..." when a single group is selected. Groups are converted to a component in-place then linked as an XRef (same flow as components). Extensions menu and manager dialog label renamed to "Create XRef from Component or Group...".
+
 ## [1.8.1] - 2026-02-18
 
 ### Fixed

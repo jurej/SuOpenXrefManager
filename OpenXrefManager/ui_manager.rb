@@ -26,6 +26,18 @@ module OpenXrefManager
 
       lock_owner_name, lock_owner_guid, lock_model, lock_model_path = lock_content.split("|") if is_locked
 
+      # Auto-claim: if "mine elsewhere" and lock was from unsaved model (empty path), claim for this session
+      if is_locked && lock_owner_name == @user_name && lock_owner_guid != model.guid &&
+         (lock_model_path.nil? || lock_model_path.to_s.strip.empty?)
+        if claim_xref_lock_for_this_model(definition)
+          cached = @last_xref_statuses[definition.guid]
+          if cached && cached[:lock_content]
+            lock_content = cached[:lock_content]
+            lock_owner_name, lock_owner_guid, lock_model, lock_model_path = lock_content.split("|")
+          end
+        end
+      end
+
       update_available = _is_update_available?(definition)
 
       # Check for readonly checkout
@@ -158,6 +170,17 @@ module OpenXrefManager
 
       @dialog.add_action_callback("force_check_in_clicked") do |_action_context, component_name|
         force_check_in_xref(component_name)
+      end
+
+      @dialog.add_action_callback("claim_for_session_clicked") do |_action_context, component_name|
+        result = UI.messagebox(
+          "This will assign the lock to this session. Only do this if you are not using this XRef in another window.\n\nContinue?",
+          MB_YESNO,
+        )
+        if result == IDYES
+          claim_xref_lock_for_this_session(component_name)
+          refresh_dialog_data
+        end
       end
 
       @dialog.add_action_callback("force_unlock_clicked") do |_action_context, component_name|
