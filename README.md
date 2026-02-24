@@ -6,6 +6,8 @@ Open XRef Manager is a comprehensive external reference (XRef) system for Sketch
 
 - **XRef Manager Window** - Central dashboard to view and manage all linked files
 - **Check-In/Check-Out System** - Robust locking mechanism to prevent conflicts
+- **Create from Component or Group** - Convert components or groups to XRefs; optionally store position for accurate placement on load
+- **Claim for this session** - Fix false "Checked Out (You, elsewhere)" (e.g. after Save As) by assigning the lock to this window
 - **Automatic Monitoring** - Background status checks and notifications
 - **Flexible Paths** - Support for both absolute and relative file paths
 - **Quick Access** - Dedicated toolbar and context menus
@@ -16,7 +18,7 @@ Open XRef Manager is a comprehensive external reference (XRef) system for Sketch
 ### Recommended: Install from .rbz File (Easiest Method)
 
 1. Download the latest `.rbz` file from the `releases` folder:
-   - `releases/OpenXrefManager_v1.8.1.rbz` (or latest version)
+   - `releases/OpenXrefManager_v1.8.3.rbz` (or latest version)
 2. Open SketchUp
 3. Go to **Window → Extension Manager**
 4. Click **Install Extension** button
@@ -117,7 +119,7 @@ This information helps you identify who has a file checked out and from which mo
 |--------|---------|
 | **Available** | Ready to check out |
 | **Checked Out (You)** | You have this checked out in the current model |
-| **Checked Out (You, elsewhere)** | You have this checked out in another model |
+| **Checked Out (You, elsewhere)** | You have this checked out in another model (or a false positive after Save As). Use **Claim for this session** in the status column or context menu to assign the lock to this window. |
 | **Locked by [Name]** | Another user has this checked out |
 | **Read-Only Checkout** | Checked out in read-only mode (locked by another user, but you can edit locally) |
 | **Read-Only Checkout (Modified)** | Read-only checkout with local modifications that haven't been published |
@@ -127,16 +129,17 @@ This information helps you identify who has a file checked out and from which mo
 
 ## Working with XRefs
 
-### Creating an XRef from a Component
+### Creating an XRef from a Component or Group
 
-Convert an existing component into an XRef:
+Convert an existing component or group into an XRef:
 
-1. Select a component instance in your model
-2. Click **Create from Component** in the XRef Manager
+1. Select a component instance or a group in your model
+2. Click **Create from Component or Group** in the XRef Manager (or right-click → **Open XRef Manager** → **Create XRef from this Component...** / **Create XRef from this Group...**)
 3. Choose where to save the XRef file (`.skp`)
-4. Choose whether to use relative or absolute paths
+4. Optionally choose to store the position relative to current axes or global origin (for accurate placement when loading via Import at Origin)
+5. Choose whether to use relative or absolute paths
 
-The component is now linked to the external file.
+The component (or group, which is converted to a component) is now linked to the external file.
 
 ### Importing an XRef
 
@@ -150,7 +153,8 @@ Import an external SketchUp file as an XRef:
 **Import at Origin**:
 1. Click **Import at Origin** in the XRef Manager
 2. Select a `.skp` file
-3. The component is placed at the model origin (0,0,0)
+3. Choose placement: **Yes** = use stored position relative to current construction axes (if the file has stored position), or place at current axes; **No** = use stored position in world space or at global origin (0,0,0)
+4. The component is placed accordingly (XRefs created with "store position" are placed correctly when loaded)
 
 ### Checking Out an XRef
 
@@ -215,6 +219,16 @@ When an XRef is locked by another user, you can check it out in **read-only mode
 - Making temporary edits for visualization or testing
 - Working on a local copy while waiting for the lock to be released
 - Experimenting with changes without affecting the published version
+
+### Claim for this session (1.8.3)
+
+If an XRef shows "Checked Out (You, elsewhere)" but you are not actually using it in another window (e.g. after **Save As** or a stale lock):
+
+1. In the XRef Manager, click the **Claim for this session** icon (person pin) in the Status column, or right-click the component → **Open XRef Manager** → **Claim for this session...**
+2. Confirm the dialog (only use this if you are not using the XRef in another window)
+3. The lock file is updated to this model; status changes to "Checked Out (You)" and you can use **Save & Check In** as usual
+
+**Note**: If you really do have the XRef open in another window, claiming here will move the lock to this session and the other window will show "Checked Out (You, elsewhere)".
 
 ### Force Check-In
 
@@ -434,6 +448,7 @@ Right-click on XRef component instances for quick access:
 - **Reload XRef**
 - **Unload XRef**
 - **Unlink XRef**
+- **Claim for this session...** (if status is "Checked Out (You, elsewhere)" and you want to assign the lock to this window)
 - **Force Check In...** (if checked out by you in another session)
 - **Force Unlock...** (if locked by another user)
 - **Select All Instances**
@@ -494,9 +509,11 @@ To improve performance, you can temporarily pause background monitoring:
 - Another user has it checked out
 - You have it checked out in another model
 - Stale lock file from crashed session
+- False "Checked Out (You, elsewhere)" after Save As
 
 **Solutions**:
 - Wait for the other user to check in
+- Use **Claim for this session** (in manager or context menu) if the status is wrong and you're not using it elsewhere
 - Use **Force Check-In** if locked by you elsewhere
 - Use **Force Unlock** if you're certain no one is working on it
 - Manually delete the `.lock` file
@@ -657,9 +674,25 @@ See LICENSE file for details.
 
 ## Version History
 
+### Version 1.8.3
+**Fixed:**
+- **False "Checked Out (You, elsewhere)"** — XRefs could show this status incorrectly after Save As or when the lock file was from an unsaved model. The plugin now auto-claims when the stored lock path is empty, and you can use **Claim for this session** (icon in Status column or context menu) to assign the lock to this window. Force Check In also claims the lock first so the status stays correct.
+
+**Added:**
+- **Claim for this session** — For "Checked Out (You, elsewhere)", a confirmation dialog then updates the lock file to this model so you can Save & Check In normally. Only use when you are not using the XRef in another window.
+
+### Version 1.8.2
+**Added:**
+- **Create XRef from Group** — Right-click a group → **Open XRef Manager** → **Create XRef from this Group...**. The group is converted to a component in-place and linked as an XRef (same flow as components). The Extensions menu and manager button are now labeled **Create XRef from Component or Group...**.
+
 ### Version 1.8.1
 **Bug Fixes:**
 - **Read-only checkout: XRef stayed locked** — Fixed a bug where the XRef instances were re-locked immediately after read-only checkout. The entities observer now respects read-only checkout, so instances stay unlocked and you can edit locally as intended.
+
+### Version 1.8.0
+**Added:**
+- **Store position when creating XRef** — When converting a component (or group) to an XRef, you can store its position relative to current axes or global origin. The position is saved in the XRef file for accurate placement when loading.
+- **Apply stored position on Import at Origin** — When loading an XRef via **Import at Origin**, you choose: **Yes** = place using stored position relative to current construction axes; **No** = place using stored position in world space (or at origin if none stored). XRefs without stored position behave as before.
 
 ### Version 1.7.0
 **Read-Only Checkout Feature:**
