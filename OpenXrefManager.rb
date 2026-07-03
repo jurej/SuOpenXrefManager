@@ -22,7 +22,7 @@ open_xref_extension = SketchupExtension.new("Open XRef Manager", "OpenXrefManage
 
 # Add some details that will show up in the Extension Manager.
 open_xref_extension.description = "A professional XRef management system for collaborative workflows."
-open_xref_extension.version = "1.8.1"
+open_xref_extension.version = "1.8.4"
 open_xref_extension.creator = "Jure Judez"
 open_xref_extension.copyright = "2025, licensed under GNU GPL v3"
 

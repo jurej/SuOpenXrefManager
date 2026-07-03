@@ -128,7 +128,12 @@ module OpenXrefManager
                     MB_YESNO,
                   )
                   if result == IDYES
-                    claim_xref_lock_for_this_session(definition.name)
+                    claimed = claim_xref_lock_for_this_session(definition.name)
+                    if claimed
+                      Sketchup.set_status_text("Lock claimed for this session for '#{definition.name}'.")
+                    else
+                      UI.messagebox("Could not claim the lock for '#{definition.name}'.\n\nThe file may be read-only or the lock is no longer valid for claiming.")
+                    end
                     refresh_dialog_data
                   end
                 end

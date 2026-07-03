@@ -1,6 +1,6 @@
 module OpenXrefManager
   # --- Constants ---
-  VERSION = "1.8.3".freeze
+  VERSION = "1.8.4".freeze
   XREF_DICT_NAME = "OpenXrefManager::Xref".freeze
   XREF_PATH_KEY = "path".freeze
   XREF_PATH_TYPE_KEY = "path_type".freeze # "absolute" or "relative"
@@ -24,6 +24,9 @@ module OpenXrefManager
   SETTINGS_AUTO_CHECKOUT_KEY = "auto_checkout_on_edit".freeze
   SETTINGS_CHECK_INTERVAL_KEY = "check_interval_seconds".freeze
   DEFAULT_CHECK_INTERVAL = 2.0 # Default: 2 seconds
+
+  # Last used directory for file dialogs
+  LAST_USED_DIRECTORY_KEY = "last_used_directory".freeze
 
   # Travel-through mode keys (stored in model settings)
   SETTINGS_TRAVEL_THROUGH_XREFS_KEY = "travel_through_xrefs".freeze # Hash of definition GUID => user info
@@ -94,6 +97,19 @@ module OpenXrefManager
     seconds = seconds.to_f
     seconds = [[seconds, 1.0].max, 60.0].min
     Sketchup.write_default("OpenXrefManager", "CheckIntervalSeconds", seconds)
+  end
+
+  # Gets the last used directory for file dialogs (default: empty string)
+  def self.last_used_directory
+    Sketchup.read_default("OpenXrefManager", LAST_USED_DIRECTORY_KEY, "")
+  end
+
+  # Sets the last used directory for file dialogs from a file path
+  def self.last_used_directory=(path)
+    return unless path && !path.empty?
+    dir = File.dirname(path.gsub("/", "\\"))
+    return unless dir && !dir.empty?
+    Sketchup.write_default("OpenXrefManager", LAST_USED_DIRECTORY_KEY, dir)
   end
 
   # Opens settings dialog

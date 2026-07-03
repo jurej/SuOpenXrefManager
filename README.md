@@ -18,7 +18,7 @@ Open XRef Manager is a comprehensive external reference (XRef) system for Sketch
 ### Recommended: Install from .rbz File (Easiest Method)
 
 1. Download the latest `.rbz` file from the `releases` folder:
-   - `releases/OpenXrefManager_v1.8.3.rbz` (or latest version)
+   - `releases/OpenXrefManager_v1.8.4.rbz` (or latest version)
 2. Open SketchUp
 3. Go to **Window → Extension Manager**
 4. Click **Install Extension** button
@@ -655,6 +655,12 @@ The plugin uses:
 14. **Unload XRefs** you're not currently working with to improve model performance
 15. **Increase check interval** (to 5-10 seconds) if working with network drives or experiencing performance issues
 
+### Visibility Best Practices
+
+- **Treat the XRef file as authoritative geometry**: Hides inside the XRef are structural changes that affect all users.
+- **Use tags and scenes for per-model control**: Drive user-specific visibility from tags and scenes in each host model, and agree on a tagging convention for optional or switchable parts.
+- **Keep temporary hides local**: When you just need temporary/local hides, use read-only checkout or editing without a lock so those changes are not published back to the XRef file.
+
 ## Keyboard Shortcuts
 
 While no default keyboard shortcuts are assigned, you can:
@@ -673,6 +679,10 @@ For issues, questions, or feature requests:
 See LICENSE file for details.
 
 ## Version History
+
+### Version 1.8.4
+**Best Practices:**
+- Documented recommended patterns for treating the XRef file as authoritative geometry, using tags/scenes for per-model visibility, and keeping temporary hides local via read-only or non-locked editing.
 
 ### Version 1.8.3
 **Fixed:**

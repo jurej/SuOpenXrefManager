@@ -413,8 +413,8 @@
         timestampCell.className = 'small text-muted';
         const timestampDiv = document.createElement('div');
         timestampDiv.className = 'cell-truncate';
-        timestampDiv.textContent = formatTimestamp(xref.timestamp);
-        timestampDiv.title = formatTimestamp(xref.timestamp);
+        timestampDiv.textContent = formatTimestamp(xref.file_timestamp);
+        timestampDiv.title = formatTimestamp(xref.file_timestamp);
         timestampCell.appendChild(timestampDiv);
         row.appendChild(timestampCell);
 

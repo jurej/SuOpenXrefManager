@@ -1,4 +1,5 @@
 require_relative "core"
+require "fileutils"
 
 module OpenXrefManager
   # --- Core Xref Functions ---
@@ -235,7 +236,7 @@ module OpenXrefManager
     end
 
     current_path = resolve_xref_path(definition)
-    directory = ""
+    directory = last_used_directory
     filename = "SketchUp Files|*.skp||" # Default filter if no path
 
     if current_path
@@ -249,6 +250,8 @@ module OpenXrefManager
 
     path = UI.openpanel("Relink XRef File", directory, filename)
     return unless path
+
+    self.last_used_directory = path
 
     # Update path
     _set_xref_path(definition, path, ask_user: true)
@@ -747,8 +750,10 @@ module OpenXrefManager
   # Supports .skp files only
   def self.import_as_xref
     model = Sketchup.active_model
-    path = UI.openpanel("Import XRef file", "", "SketchUp Files|*.skp||")
+    path = UI.openpanel("Import XRef file", last_used_directory, "SketchUp Files|*.skp||")
     return unless path
+
+    self.last_used_directory = path
 
     model.start_operation("Import as XRef", true)
     begin
@@ -768,8 +773,10 @@ module OpenXrefManager
   # (construction axes at model root, or local origin when inside a group) or at default global origin.
   def self.import_as_xref_at_origin
     model = Sketchup.active_model
-    path = UI.openpanel("Import XRef at Origin", "", "SketchUp Files|*.skp||")
+    path = UI.openpanel("Import XRef at Origin", last_used_directory, "SketchUp Files|*.skp||")
     return unless path
+
+    self.last_used_directory = path
 
     result = UI.messagebox(
       "Place XRef at current axis (Yes) or at default global origin (No)? Cancel to abort.",
@@ -883,8 +890,10 @@ module OpenXrefManager
       return UI.messagebox("'#{entity.definition.name}' is already an XRef.") if is_xref?(entity.definition)
     end
 
-    path = UI.savepanel("Create and Link XRef File", "", "#{suggested_name}.skp")
+    path = UI.savepanel("Create and Link XRef File", last_used_directory, "#{suggested_name}.skp")
     return unless path
+
+    self.last_used_directory = path
 
     instance_global = _get_global_transformation(entity)
     result = UI.messagebox(
@@ -1330,18 +1339,6 @@ module OpenXrefManager
     return false unless definition && is_xref?(definition)
 
     claim_xref_lock_for_this_model(definition)
-  end
-
-  # Claims all "mine elsewhere" XRefs in the current model. Returns the number claimed.
-  def self.claim_all_owned_locks_for_this_model
-    model = Sketchup.active_model
-    return 0 unless model
-
-    claimed = 0
-    get_xref_definitions.each do |definition|
-      claimed += 1 if claim_xref_lock_for_this_model(definition)
-    end
-    claimed
   end
 
   # --- Travel-Through Mode Functions ---
