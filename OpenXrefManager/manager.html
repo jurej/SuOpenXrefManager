@@ -18,27 +18,27 @@
       height: 100vh;
       box-sizing: border-box;
       margin: 0;
-      font-size: 0.9rem;
+      font-size: 12px;
     }
 
     .list-container {
       flex-grow: 1;
       overflow-y: auto;
       overflow-x: auto; /* Allow horizontal scrolling if needed */
-      padding: 1rem;
+      padding: 0.4rem;
     }
-
+    
     .btn .material-icons {
       vertical-align: middle;
-      font-size: 1.25rem;
+      font-size: 16px;
     }
 
     .action-buttons {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 2px;
       justify-content: flex-start;
-      padding: 0.25rem 0;
+      padding: 1px 0;
       flex-wrap: nowrap; /* Prevent wrapping to keep buttons in one row */
       min-width: fit-content; /* Ensure container expands to fit all buttons */
     }
@@ -72,7 +72,8 @@
     .table td {
       vertical-align: middle;
       text-align: left;
-      font-size: 0.8rem;
+      font-size: inherit;
+      padding: 2px 4px;
     }
 
     .table th {
@@ -116,11 +117,11 @@
 
     .col-actions {
       width: 20%;
-      min-width: 300px;
+      min-width: 230px;
     }
 
     .col-actions.action-buttons {
-      padding: 0.25rem 0.75rem !important;
+      padding: 1px 4px !important;
       white-space: nowrap; /* Prevent button wrapping */
       overflow: visible; /* Allow buttons to be visible even if slightly over */
     }
@@ -156,7 +157,7 @@
 
 <body>
 
-  <div class="header p-3 bg-light border-bottom d-flex justify-content-between align-items-center">
+  <div class="header p-1 bg-light border-bottom d-flex justify-content-between align-items-center">
     <div class="d-flex">
       <button id="set-user-button" class="btn btn-outline-secondary btn-sm" title="Set User Name">
         <i class="material-icons">person</i> Set User
@@ -204,7 +205,7 @@
     </table>
   </div>
 
-  <div class="footer p-3 bg-light border-top">
+  <div class="footer p-1 bg-light border-top">
     <div class="d-flex justify-content-between">
 
       <button id="purge-button" class="btn btn-outline-secondary">

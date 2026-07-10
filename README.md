@@ -18,7 +18,7 @@ Open XRef Manager is a comprehensive external reference (XRef) system for Sketch
 ### Recommended: Install from .rbz File (Easiest Method)
 
 1. Download the latest `.rbz` file from the `releases` folder:
-   - `releases/OpenXrefManager_v1.8.4.rbz` (or latest version)
+   - `releases/OpenXrefManager_v1.8.5.rbz` (or latest version)
 2. Open SketchUp
 3. Go to **Window → Extension Manager**
 4. Click **Install Extension** button
@@ -679,6 +679,14 @@ For issues, questions, or feature requests:
 See LICENSE file for details.
 
 ## Version History
+
+### Version 1.8.5
+**UI Improvements:**
+- Compact dialog layout with 12px base font size and reduced paddings throughout
+- Smaller action button icons (16px) and tighter button gaps for a denser table view
+- Reduced dialog default size and minimum height for better screen utilisation
+- File dialogs for opening/saving XRef files now default to the last used folder
+- "Last Commit" column now shows the live file modification time instead of the stored sync timestamp
 
 ### Version 1.8.4
 **Best Practices:**

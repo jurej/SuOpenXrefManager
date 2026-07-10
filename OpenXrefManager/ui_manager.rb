@@ -138,10 +138,10 @@ module OpenXrefManager
         preferences_key: "OpenXrefManager_Dialog",
         style: UI::HtmlDialog::STYLE_DIALOG,
         resizable: true,
-        width: 1000,
-        height: 600,
-        min_width: 800,
-        min_height: 400,
+        width: 900,
+        height: 480,
+        min_width: 720,
+        min_height: 250,
       }
 
       @dialog = UI::HtmlDialog.new(options)
